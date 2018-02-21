@@ -31,13 +31,20 @@ DLLEXPORT void __stdcall dxvkRegisterDeviceExtCallback(deviceCallback cb)
 
 DLLEXPORT void __stdcall dxvkGetVulkanImage(D3D11Texture2D* tex,
     VkImage* img,
-    uint32_t width,
-    uint32_t height,
-    uint32_t format,
-    uint32_t sampleCt
+    uint32_t* width,
+    uint32_t* height,
+    uint32_t* format,
+    uint32_t* sampleCt
   )
 {
+  D3D11_TEXTURE2D_DESC* desc = tex->GetDescInternal();
+  D3D11TextureInfo* texInfo = tex->GetTextureInfo();
   
+  *img = texInfo->image->handle();
+  *width = desc->Width;
+  *height = desc->Height;
+  *format = texInfo->image->info().format;
+  *sampleCt = texInfo->image->info().sampleCount;
 }
 
 DLLEXPORT int32_t __stdcall dxvkPhysicalDeviceToAdapterIdx(VkPhysicalDevice dev)

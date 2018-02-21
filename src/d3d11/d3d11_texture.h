@@ -97,6 +97,10 @@ namespace dxvk {
     void STDMETHODCALLTYPE GetDesc(
             D3D11_TEXTURE2D_DESC *pDesc) final;
     
+    D3D11_TEXTURE2D_DESC* GetDescInternal() {
+      return &m_desc;
+    }
+    
     D3D11TextureInfo* GetTextureInfo() {
       return &m_texInfo;
     }
