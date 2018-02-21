@@ -1,6 +1,6 @@
 #pragma once
 
-#include "dxvk_instance.h"
+#include <vector>
 
 namespace dxvk::interop {
   
@@ -19,7 +19,7 @@ namespace dxvk::interop {
    *
    * \returns Merged list of instance extensions requested by external libraries
    */
-   char** getExternalInstanceExtensions();
+   std::vector<char*> getExternalInstanceExtensions();
    
    /**
     * \brief Get externally required device extensions
@@ -29,5 +29,5 @@ namespace dxvk::interop {
     * \param [in] physDev The physical device the application intends to use.
     * \returns Merged list of device extensions requested by external libraries
     */
-    char** getExternalDeviceExtensions(VkPhysicalDevice* physDev);
+    std::vector<char*> getExternalDeviceExtensions(VkPhysicalDevice* physDev);
 }
