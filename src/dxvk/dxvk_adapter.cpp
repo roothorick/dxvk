@@ -4,6 +4,7 @@
 #include "dxvk_device.h"
 #include "dxvk_instance.h"
 #include "dxvk_surface.h"
+#include "dxvk_interop_internal.h"
 
 namespace dxvk {
   
@@ -153,8 +154,13 @@ namespace dxvk {
     if (!extensions->checkSupportStatus())
       throw DxvkError("DxvkAdapter: Failed to create device");
     
-    const vk::NameList enabledExtensions =
+    vk::NameList enabledExtensions =
       extensions->getEnabledExtensionNames();
+    
+    // Note external extensions for free()ing later
+    vk::NameList externalExtensions = interop::getExternalDeviceExtensions(&m_handle);
+    for (auto e : externalExtensions)
+      enabledExtensions.push_back(e);
     
     Logger::info("Enabled device extensions:");
     this->logNameList(enabledExtensions);
@@ -201,6 +207,10 @@ namespace dxvk {
       new vk::DeviceFn(m_vki->instance(), device),
       extensions, enabledFeatures);
     result->initResources();
+    
+    for (auto e: externalExtensions)
+      free( (char*) e);
+    
     return result;
   }
   

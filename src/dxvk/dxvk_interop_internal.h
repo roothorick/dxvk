@@ -26,7 +26,7 @@ namespace dxvk::interop {
    /**
     * \brief Get externally required device extensions
     *
-    * This is called by DxvkAdapter shortly before VkDevice creation.
+    * This is called by DxvkExtensionList shortly before VkDevice creation.
     *
     * \param [in] physDev The physical device the application intends to use.
     * \returns Merged list of device extensions requested by external libraries
