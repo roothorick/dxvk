@@ -53,10 +53,10 @@ namespace dxvk {
     info.pNext                    = nullptr;
     info.flags                    = 0;
     info.pApplicationInfo         = &appInfo;
-    info.enabledLayerCount        = enabledLayers.count();
-    info.ppEnabledLayerNames      = enabledLayers.names();
-    info.enabledExtensionCount    = enabledExtensions.count();
-    info.ppEnabledExtensionNames  = enabledExtensions.names();
+    info.enabledLayerCount        = enabledLayers.size();
+    info.ppEnabledLayerNames      = enabledLayers.data();
+    info.enabledExtensionCount    = enabledExtensions.size();
+    info.ppEnabledExtensionNames  = enabledExtensions.data();
     
     VkInstance result = VK_NULL_HANDLE;
     if (m_vkl->vkCreateInstance(&info, nullptr, &result) != VK_SUCCESS)
@@ -77,7 +77,7 @@ namespace dxvk {
     vk::NameList layersEnabled;
     for (auto l : layers) {
       if (layersAvailable.supports(l))
-        layersEnabled.add(l);
+        layersEnabled.push_back(l);
     }
     
     return layersEnabled;
@@ -97,13 +97,13 @@ namespace dxvk {
     
     for (auto e : extOptional) {
       if (extensionsAvailable.supports(e))
-        extensionsEnabled.add(e);
+        extensionsEnabled.push_back(e);
     }
     
     for (auto e : extRequired) {
       if (!extensionsAvailable.supports(e))
         throw DxvkError(str::format("DxvkInstance::getExtensions: Extension ", e, " not supported"));
-      extensionsEnabled.add(e);
+      extensionsEnabled.push_back(e);
     }
     
     return extensionsEnabled;
@@ -111,8 +111,8 @@ namespace dxvk {
   
   
   void DxvkInstance::logNameList(const vk::NameList& names) {
-    for (uint32_t i = 0; i < names.count(); i++)
-      Logger::info(str::format("  ", names.name(i)));
+    for (uint32_t i = 0; i < names.size(); i++)
+      Logger::info(str::format("  ", names[i]));
   }
   
 }

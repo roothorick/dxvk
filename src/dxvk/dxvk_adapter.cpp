@@ -188,8 +188,8 @@ namespace dxvk {
     info.pQueueCreateInfos          = queueInfos.data();
     info.enabledLayerCount          = 0;
     info.ppEnabledLayerNames        = nullptr;
-    info.enabledExtensionCount      = enabledExtensions.count();
-    info.ppEnabledExtensionNames    = enabledExtensions.names();
+    info.enabledExtensionCount      = enabledExtensions.size();
+    info.ppEnabledExtensionNames    = enabledExtensions.data();
     info.pEnabledFeatures           = &enabledFeatures;
     
     VkDevice device = VK_NULL_HANDLE;
@@ -211,8 +211,8 @@ namespace dxvk {
   
   
   void DxvkAdapter::logNameList(const vk::NameList& names) {
-    for (uint32_t i = 0; i < names.count(); i++)
-      Logger::info(str::format("  ", names.name(i)));
+    for (uint32_t i = 0; i < names.size(); i++)
+      Logger::info(str::format("  ", names[i]));
   }
   
 }

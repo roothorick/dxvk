@@ -79,11 +79,9 @@ namespace dxvk::interop {
       
       for(unsigned int j=0;j<newExtCt;j++)
       {
-        // HACK: vk::NameList doesn't want dynamically allocated strings. But that's unavoidable here.
-        // Make a copy of the string returned from the other lib, and never free it.
-        // This is called infrequently enough that the leak should be inconsequential.
+        // TODO: Refactor for deallocation responsibilities (or at all)
         char* newExtCpy = new char[strlen(newExts[i])];
-        ret.add(newExtCpy);
+        ret.push_back(newExtCpy);
       }
     }
     
@@ -101,11 +99,9 @@ namespace dxvk::interop {
       
       for(unsigned int j=0;j<newExtCt;j++)
       {
-        // HACK: vk::NameList doesn't want dynamically allocated strings. But that's unavoidable here.
-        // Make a copy of the string returned from the other lib, and never free it.
-        // This is called infrequently enough that the leak should be inconsequential.
+        // TODO: Refactor for deallocation responsibilities (or at all)
         char* newExtCpy = new char[strlen(newExts[i])];
-        ret.add(newExtCpy);
+        ret.push_back(newExtCpy);
       }
     }
     

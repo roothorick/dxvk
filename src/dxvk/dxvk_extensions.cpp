@@ -52,7 +52,7 @@ namespace dxvk {
     
     for (auto ext : m_extensions) {
       if (ext->enabled())
-        names.add(ext->name());
+        names.push_back(ext->name());
     }
     
     return names;

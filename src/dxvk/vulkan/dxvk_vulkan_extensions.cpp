@@ -29,8 +29,8 @@ namespace dxvk::vk {
     NameSet result;
     result.addInstanceLayerExtensions(vkl, nullptr);
     
-    for (size_t i = 0; i < layers.count(); i++)
-      result.addInstanceLayerExtensions(vkl, layers.name(i));
+    for (size_t i = 0; i < layers.size(); i++)
+      result.addInstanceLayerExtensions(vkl, layers[i]);
     return result;
   }
   

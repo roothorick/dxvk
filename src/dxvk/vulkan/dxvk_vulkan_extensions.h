@@ -11,35 +11,7 @@
 
 namespace dxvk::vk {
   
-  /**
-   * \brief Name list
-   * 
-   * Stores a list of extension or layer names.
-   * Note that only name constants may be added
-   * to a name list. Adding dynamically allocated
-   * strings will result in udefined behaviour.
-   */
-  class NameList {
-    
-  public:
-    
-    void add(const char* name) {
-      m_list.push_back(name);
-    }
-    
-    auto name(size_t i) const {
-      return m_list[i];
-    }
-    
-    auto names() const { return m_list.data(); }
-    auto count() const { return m_list.size(); }
-    
-  private:
-    
-    std::vector<const char*> m_list;
-    
-  };
-  
+  typedef std::vector<const char*> NameList;
   
   /**
    * \brief Name set
