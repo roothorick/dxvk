@@ -4,6 +4,19 @@
 
 namespace dxvk {
   
+  class DxvkCommandList;
+  class DxvkQueryPool;
+  
+  /**
+   * \brief Query range
+   */
+  struct DxvkQueryRange {
+    Rc<DxvkQueryPool> queryPool;
+    
+    uint32_t queryIndex = 0;
+    uint32_t queryCount = 0;
+  };
+  
   /**
    * \brief Query pool
    * 
@@ -17,7 +30,8 @@ namespace dxvk {
     
     DxvkQueryPool(
       const Rc<vk::DeviceFn>& vkd,
-            VkQueryType       queryType);
+            VkQueryType       queryType,
+            uint32_t          queryCount);
     
     ~DxvkQueryPool();
     
@@ -27,14 +41,6 @@ namespace dxvk {
      */
     VkQueryPool handle() const {
       return m_queryPool;
-    }
-    
-    /**
-     * \brief Query count
-     * \returns Query count
-     */
-    uint32_t queryCount() const {
-      return MaxNumQueryCountPerPool;
     }
     
     /**
@@ -57,15 +63,38 @@ namespace dxvk {
             uint32_t          queryIndex,
             uint32_t          queryCount);
     
+    /**
+     * \brief Resets query pool
+     * 
+     * Resets the Vulkan query pool itself, as
+     * well as the the internal query allocator.
+     * \param [in] cmd Command list
+     */
+    void reset(
+      const Rc<DxvkCommandList>& cmd);
+    
+    /**
+     * \brief Retrieves active query range
+     * 
+     * This will also move the beginning of the
+     * new active query range to the end of the
+     * current active query range.
+     * \returns Active query range
+     */
+    DxvkQueryRange getActiveQueryRange();
+    
   private:
     
     Rc<vk::DeviceFn> m_vkd;
     
+    uint32_t    m_queryCount;
     VkQueryType m_queryType;
     VkQueryPool m_queryPool = VK_NULL_HANDLE;
     
-    std::array<DxvkQueryRevision, MaxNumQueryCountPerPool> m_queries;
-    uint32_t                                               m_queryId = 0;
+    std::vector<DxvkQueryRevision> m_queries;
+    
+    uint32_t m_queryRangeOffset = 0;
+    uint32_t m_queryRangeLength = 0;
     
   };
   

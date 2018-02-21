@@ -800,9 +800,10 @@ namespace dxvk {
       res.depthTypeId   = 0;
       res.structStride  = 0;
       
-      if (resourceType != DxbcResourceDim::Buffer
-       && resourceType != DxbcResourceDim::Texture2DMs
-       && resourceType != DxbcResourceDim::Texture2DMsArr) {
+      if (resourceType == DxbcResourceDim::Texture2D
+       || resourceType == DxbcResourceDim::Texture2DArr
+       || resourceType == DxbcResourceDim::TextureCube
+       || resourceType == DxbcResourceDim::TextureCubeArr) {
         res.depthTypeId = m_module.defImageType(sampledTypeId,
           typeInfo.dim, 1, typeInfo.array, typeInfo.ms, typeInfo.sampled,
           spv::ImageFormatUnknown);
@@ -1321,6 +1322,11 @@ namespace dxvk {
         
       case DxbcOpcode::FirstBitShi:
         dst.id = m_module.opFindSMsb(
+          typeId, src.at(0).id);
+        break;
+      
+      case DxbcOpcode::BfRev:
+        dst.id = m_module.opBitReverse(
           typeId, src.at(0).id);
         break;
       
@@ -1858,6 +1864,18 @@ namespace dxvk {
       case DxbcOpcode::AtomicXor:
       case DxbcOpcode::ImmAtomicXor:
         value.id = m_module.opAtomicXor(typeId,
+          pointer.id, scopeId, semanticsId,
+          src[0].id);
+        break;
+      
+      case DxbcOpcode::AtomicIMin:
+        value.id = m_module.opAtomicSMin(typeId,
+          pointer.id, scopeId, semanticsId,
+          src[0].id);
+        break;
+      
+      case DxbcOpcode::AtomicIMax:
+        value.id = m_module.opAtomicSMax(typeId,
           pointer.id, scopeId, semanticsId,
           src[0].id);
         break;
@@ -4033,9 +4051,15 @@ namespace dxvk {
     DxbcRegisterValue result;
     result.type.ctype  = DxbcScalarType::Uint32;
     result.type.ccount = 1;
-    result.id = m_module.opImageQueryLevels(
-      getVectorTypeId(result.type),
-      m_module.opLoad(info.typeId, info.varId));
+    
+    if (info.image.sampled == 1) {
+      result.id = m_module.opImageQueryLevels(
+        getVectorTypeId(result.type),
+        m_module.opLoad(info.typeId, info.varId));
+    } else {
+      // Report one LOD in case of UAVs
+      result.id = m_module.constu32(1);
+    }
     return result;
   }
   
@@ -4063,7 +4087,7 @@ namespace dxvk {
     result.type.ctype  = DxbcScalarType::Uint32;
     result.type.ccount = getTexCoordDim(info.image);
     
-    if (info.image.ms == 0) {
+    if (info.image.ms == 0 && info.image.sampled == 1) {
       result.id = m_module.opImageQuerySizeLod(
         getVectorTypeId(result.type),
         m_module.opLoad(info.typeId, info.varId),
@@ -4565,8 +4589,26 @@ namespace dxvk {
         ptrIn.type.ccount  = 1;
         ptrIn.id = m_ps.builtinSampleId;
         
-        return emitRegisterExtract(
-          emitValueLoad(ptrIn), mask);
+        return emitValueLoad(ptrIn);
+      } break;
+      
+      case DxbcSystemValue::RenderTargetId: {
+        if (m_ps.builtinLayer == 0) {
+          m_module.enableCapability(spv::CapabilityGeometry);
+          
+          m_ps.builtinLayer = emitNewBuiltinVariable({
+            { DxbcScalarType::Uint32, 1, 0 },
+            spv::StorageClassInput },
+            spv::BuiltInLayer,
+            "ps_layer");
+        }
+        
+        DxbcRegisterPointer ptr;
+        ptr.type.ctype   = DxbcScalarType::Uint32;
+        ptr.type.ccount  = 1;
+        ptr.id = m_ps.builtinLayer;
+        
+        return emitValueLoad(ptr);
       } break;
       
       default:
