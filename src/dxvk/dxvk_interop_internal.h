@@ -1,5 +1,7 @@
 #pragma once
 
+#include "vulkan/dxvk_vulkan_extensions.h"
+
 #include <vector>
 
 namespace dxvk::interop {
