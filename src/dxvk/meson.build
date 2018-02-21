@@ -21,6 +21,7 @@ dxvk_src = files([
   'dxvk_graphics.cpp',
   'dxvk_image.cpp',
   'dxvk_instance.cpp',
+  'dxvk_interop.cpp',
   'dxvk_lifetime.cpp',
   'dxvk_main.cpp',
   'dxvk_memory.cpp',
