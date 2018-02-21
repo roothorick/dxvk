@@ -11,6 +11,7 @@ using namespace dxvk;
 #include <vector>
 #include <functional>
 #include <cstring>
+#include <cstdlib>
 
 // Doesn't work with the typedefs. Not easy to fix.
 std::vector<std::function<unsigned int(char***)>> instCallbacks;
@@ -79,13 +80,12 @@ namespace dxvk::interop {
       unsigned int newExtCt = instCallbacks[i](&newExts);
       
       for(unsigned int j=0;j<newExtCt;j++)
-      {
-        // TODO: Refactor for deallocation responsibilities (or at all)
-        char* newExtCpy = new char[strlen(newExts[i])];
-        ret.push_back(newExtCpy);
-      }
+        ret.push_back(newExts[i]);
     }
     
+    // Freeing just the array itself. It is expected that the caller malloc()d the individual strings separately.
+    free(newExts);
+
     return ret;
   }
   
@@ -99,13 +99,12 @@ namespace dxvk::interop {
       unsigned int newExtCt = devCallbacks[i](*physDev,&newExts);
       
       for(unsigned int j=0;j<newExtCt;j++)
-      {
-        // TODO: Refactor for deallocation responsibilities (or at all)
-        char* newExtCpy = new char[strlen(newExts[i])];
-        ret.push_back(newExtCpy);
-      }
+        ret.push_back(newExts[i]);
     }
     
+    // Freeing just the array itself. It is expected that the caller malloc()d the individual strings separately.
+    free(newExts);
+
     return ret;
   }
 }
