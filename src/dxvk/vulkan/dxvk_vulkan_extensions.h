@@ -11,7 +11,7 @@
 
 namespace dxvk::vk {
   
-  typedef std::vector<char*> NameList;
+  typedef std::vector<const char*> NameList;
   
   /**
    * \brief Name set
