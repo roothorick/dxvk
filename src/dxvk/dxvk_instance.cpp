@@ -1,5 +1,10 @@
 #include "dxvk_instance.h"
 
+#include "dxvk_interop_internal.h"
+
+#include <cstdlib>
+#include <cstring>
+
 namespace dxvk {
   
   DxvkInstance::DxvkInstance()
@@ -61,6 +66,11 @@ namespace dxvk {
     VkInstance result = VK_NULL_HANDLE;
     if (m_vkl->vkCreateInstance(&info, nullptr, &result) != VK_SUCCESS)
       throw DxvkError("DxvkInstance::createInstance: Failed to create Vulkan instance");
+    
+    // Done with extension names now. We use free() for compatibility with C apps/libraries
+    for (auto e: enabledExtensions)
+      free( (char*) e);
+    
     return result;
   }
   
@@ -86,10 +96,24 @@ namespace dxvk {
   
   vk::NameList DxvkInstance::getExtensions(const vk::NameList& layers) {
     std::vector<const char*> extOptional = { };
-    std::vector<const char*> extRequired = {
+    std::vector<const char*> extRequired = { };
+    std::vector<const char*> extReqInternal = {
       VK_KHR_SURFACE_EXTENSION_NAME,
       VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
     };
+    
+    vk::NameList extExternal = interop::getExternalInstanceExtensions();
+    
+    for (auto e : extReqInternal)
+    {
+      // Make malloc()d copies so we don't have to distinguish between internal and external when free()ing
+      const char* copy = (const char*) malloc(sizeof(char) * strlen(e));
+      strcpy( (char*) copy, e);
+      extRequired.push_back(copy);
+    }
+    
+    for (auto e: extExternal)
+      extRequired.push_back(e);
     
     const vk::NameSet extensionsAvailable
       = vk::NameSet::enumerateInstanceExtensions(*m_vkl, layers);
@@ -97,7 +121,12 @@ namespace dxvk {
     
     for (auto e : extOptional) {
       if (extensionsAvailable.supports(e))
-        extensionsEnabled.push_back(e);
+      {
+        // Again, make malloc()d copies so we don't have to distinguish between internal and external when free()ing
+        const char* copy = (const char*) malloc(sizeof(char) * strlen(e));
+        strcpy( (char*) copy, e);
+        extensionsEnabled.push_back(copy);
+      }
     }
     
     for (auto e : extRequired) {

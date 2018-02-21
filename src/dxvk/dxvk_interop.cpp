@@ -81,11 +81,11 @@ namespace dxvk::interop {
       
       for(unsigned int j=0;j<newExtCt;j++)
         ret.push_back(newExts[i]);
+
+      // Freeing just the array itself. It is expected that the caller malloc()d the individual strings separately.
+      free(newExts);
     }
     
-    // Freeing just the array itself. It is expected that the caller malloc()d the individual strings separately.
-    free(newExts);
-
     return ret;
   }
   
@@ -100,11 +100,11 @@ namespace dxvk::interop {
       
       for(unsigned int j=0;j<newExtCt;j++)
         ret.push_back(newExts[i]);
+        
+      // Freeing just the array itself. It is expected that the caller malloc()d the individual strings separately.
+      free(newExts);
     }
     
-    // Freeing just the array itself. It is expected that the caller malloc()d the individual strings separately.
-    free(newExts);
-
     return ret;
   }
 }
