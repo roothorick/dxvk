@@ -23,7 +23,6 @@ void dxvkRegisterInstanceExtCallback(char**(*cb)());
  */
 void dxvkRegisterDeviceExtCallback(char**(*cb)(VkPhysicalDevice*));
 
-
 /**
  * \brief Extract the VkImage from a D3D11Texture2D
  *
