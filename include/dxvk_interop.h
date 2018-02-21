@@ -12,6 +12,8 @@ class D3D11Texture2D;
  * \brief Callback for providing instance extensions
  *
  * Callback for telling dxvk what instance extensions you need. Pass this to dxvkRegisterInstanceExtCallback().
+ * The strings in the array will be free()d, and then the array itself, by dxvk, so do not modify them after your
+ * callback returns.
  *
  * \param [out] An array of pointers to char arrays of the needed extensions you need
  * \returns The number of needed extensions
@@ -31,6 +33,8 @@ DLLEXPORT void __stdcall dxvkRegisterInstanceExtCallback(instanceCallback cb);
  * \brief Callback for providing device extensions
  *
  * Callback for telling dxvk what device extensions you need. Pass this to dxvkRegisterDeviceExtCallback().
+ * The strings in the array will be free()d, and then the array itself, by dxvk, so do not modify them after your
+ * callback returns.
  *
  * \param [out] An array of pointers to char arrays of the needed extensions you need
  * \returns The number of needed extensions
