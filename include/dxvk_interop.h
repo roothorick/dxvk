@@ -9,13 +9,33 @@ class D3D11Texture2D;
 #endif
 
 /**
- * \brief Request instance extensions (callback)
+ * \brief Callback for providing instance extensions
+ *
+ * Callback for telling dxvk what instance extensions you need. Pass this to dxvkRegisterInstanceExtCallback().
+ *
+ * \param [out] An array of pointers to char arrays of the needed extensions you need
+ * \returns The number of needed extensions
+ */
+typedef unsigned int(*instanceCallback)(char***);
+
+/**
+ * \brief Request instance extensions
  *
  * Registers a callback for when VkInstance creation is about to occur, giving you an opportunity to specify additional
  * instance extensions to be requested.
  * \param [in] cb Callback method to be registered.
  */
-DLLEXPORT void __stdcall dxvkRegisterInstanceExtCallback(unsigned int(*cb)(char***));
+DLLEXPORT void __stdcall dxvkRegisterInstanceExtCallback(instanceCallback cb);
+
+/**
+ * \brief Callback for providing device extensions
+ *
+ * Callback for telling dxvk what device extensions you need. Pass this to dxvkRegisterDeviceExtCallback().
+ *
+ * \param [out] An array of pointers to char arrays of the needed extensions you need
+ * \returns The number of needed extensions
+ */
+typedef unsigned int(*deviceCallback)(VkPhysicalDevice,char***);
 
 /**
  * \brief Request device extensions (callback)
@@ -24,7 +44,7 @@ DLLEXPORT void __stdcall dxvkRegisterInstanceExtCallback(unsigned int(*cb)(char*
  * device extensions to be requested.
  * \param [in] cb Callback method to be registered. The passed parameter is the VkPhysicalDevice the application will use.
  */
-DLLEXPORT void __stdcall dxvkRegisterDeviceExtCallback(unsigned int(*cb)(VkPhysicalDevice,char***));
+DLLEXPORT void __stdcall dxvkRegisterDeviceExtCallback(deviceCallback cb);
 
 /**
  * \brief Extract the VkImage from a D3D11Texture2D

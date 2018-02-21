@@ -12,16 +12,17 @@ using namespace dxvk;
 #include <functional>
 #include <cstring>
 
+// Doesn't work with the typedefs. Not easy to fix.
 std::vector<std::function<unsigned int(char***)>> instCallbacks;
 std::vector<std::function<unsigned int(VkPhysicalDevice, char***)>> devCallbacks;
 
-DLLEXPORT void __stdcall dxvkRegisterInstanceExtCallback(unsigned int(*cb)(char***))
+DLLEXPORT void __stdcall dxvkRegisterInstanceExtCallback(instanceCallback cb)
 {
   std::function<unsigned int(char***)> fnobj = *cb;
   instCallbacks.push_back(fnobj);
 }
 
-DLLEXPORT void __stdcall dxvkRegisterDeviceExtCallback(unsigned int(*cb)(VkPhysicalDevice,char***))
+DLLEXPORT void __stdcall dxvkRegisterDeviceExtCallback(deviceCallback cb)
 {
   std::function<unsigned int(VkPhysicalDevice, char***)> fnobj = *cb;
   devCallbacks.push_back(fnobj);
