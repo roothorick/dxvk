@@ -12,7 +12,7 @@ class D3D11Texture2D;
  * instance extensions to be requested.
  * \param [in] cb Callback method to be registered.
  */
-void dxvkRegisterInstanceExtCallback(char**(*cb)());
+void dxvkRegisterInstanceExtCallback(unsigned int(*cb)(char**));
 
 /**
  * \brief Request device extensions (callback)
@@ -21,7 +21,7 @@ void dxvkRegisterInstanceExtCallback(char**(*cb)());
  * device extensions to be requested.
  * \param [in] cb Callback method to be registered. The passed parameter is the VkPhysicalDevice the application will use.
  */
-void dxvkRegisterDeviceExtCallback(char**(*cb)(VkPhysicalDevice*));
+void dxvkRegisterDeviceExtCallback(unsigned int(*cb)(VkPhysicalDevice*,char**));
 
 /**
  * \brief Extract the VkImage from a D3D11Texture2D
