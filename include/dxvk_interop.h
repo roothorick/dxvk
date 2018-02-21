@@ -57,10 +57,10 @@ DLLEXPORT void __stdcall dxvkRegisterDeviceExtCallback(deviceCallback cb);
  */
 DLLEXPORT void __stdcall dxvkGetVulkanImage(D3D11Texture2D* tex,
   VkImage* img,
-  uint32_t width,
-  uint32_t height,
-  uint32_t format,
-  uint32_t sampleCt
+  uint32_t* width,
+  uint32_t* height,
+  uint32_t* format,
+  uint32_t* sampleCt
 );
 
 /**
@@ -92,6 +92,6 @@ DLLEXPORT void __stdcall dxvkGetHandlesForVulkanOps(
   VkInstance* inst,
   VkPhysicalDevice* pdev,
   VkDevice* ldev,
-  uint32_t queueFamily,
+  uint32_t* queueFamily,
   VkQueue* queue
 );
