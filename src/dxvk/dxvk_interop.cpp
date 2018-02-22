@@ -20,12 +20,14 @@ std::vector<std::function<unsigned int(VkPhysicalDevice, char***)>> devCallbacks
 
 DLLEXPORT void __stdcall dxvkRegisterInstanceExtCallback(instanceCallback cb)
 {
+  Logger::trace("Adding instance cb");
   std::function<unsigned int(char***)> fnobj = *cb;
   instCallbacks.push_back(fnobj);
 }
 
 DLLEXPORT void __stdcall dxvkRegisterDeviceExtCallback(deviceCallback cb)
 {
+  Logger::trace("Adding device cb");
   std::function<unsigned int(VkPhysicalDevice, char***)> fnobj = *cb;
   devCallbacks.push_back(fnobj);
 }
@@ -114,7 +116,7 @@ namespace dxvk::interop {
       unsigned int newExtCt = instCallbacks[i](&newExts);
       
       for(unsigned int j=0;j<newExtCt;j++)
-        ret.push_back(newExts[i]);
+        ret.push_back(newExts[j]);
 
       // Freeing just the array itself. It is expected that the caller malloc()d the individual strings separately.
       free(newExts);
@@ -133,7 +135,7 @@ namespace dxvk::interop {
       unsigned int newExtCt = devCallbacks[i](*physDev,&newExts);
       
       for(unsigned int j=0;j<newExtCt;j++)
-        ret.push_back(newExts[i]);
+        ret.push_back(newExts[j]);
         
       // Freeing just the array itself. It is expected that the caller malloc()d the individual strings separately.
       free(newExts);
