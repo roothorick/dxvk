@@ -2,6 +2,7 @@
 
 #include "../d3d11/d3d11_device.h"
 #include "../d3d11/d3d11_texture.h"
+#include "../dxgi/dxgi_factory.h"
 
 using namespace dxvk;
 
@@ -49,7 +50,8 @@ DLLEXPORT void __stdcall dxvkGetVulkanImage(D3D11Texture2D* tex,
 
 DLLEXPORT VkInstance __stdcall dxvkInstanceOfFactory(IDXGIFactory* fac)
 {
-  
+  // XXX: I don't actually know how safe this is
+  return ( (DxgiFactory*) fac )->GetInstanceInternal();
 }
 
 DLLEXPORT int32_t __stdcall dxvkPhysicalDeviceToAdapterIdx(IDXGIFactory* fac, VkPhysicalDevice dev)

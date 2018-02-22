@@ -49,6 +49,10 @@ namespace dxvk {
     
     BOOL STDMETHODCALLTYPE IsCurrent();
     
+    VkInstance GetInstanceInternal()
+    {
+      return m_instance->handle();
+    }
   private:
     
     Rc<DxvkInstance>              m_instance;
