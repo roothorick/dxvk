@@ -70,7 +70,7 @@ DLLEXPORT void __stdcall dxvkGetVulkanImage(D3D11Texture2D* tex,
  * \param [in] fac The DXGIFactory to be resolved
  * \returns Its VkInstance
  */
-DLLEXPORT VkInstance __stdcall dxvkInstanceOfFactory(DXGIFactory* fac);
+DLLEXPORT VkInstance __stdcall dxvkInstanceOfFactory(IDXGIFactory* fac);
 
 /**
  * \brief DXGI adapter index of a VkPhysicalDevice
@@ -80,7 +80,7 @@ DLLEXPORT VkInstance __stdcall dxvkInstanceOfFactory(DXGIFactory* fac);
  * \param [in] physDev The VkPhysicalDevice to be looked up
  * \returns The corresponding adapter index
  */
-DLLEXPORT int32_t __stdcall dxvkPhysicalDeviceToAdapterIdx(DXGIFactory* fac, VkPhysicalDevice dev);
+DLLEXPORT int32_t __stdcall dxvkPhysicalDeviceToAdapterIdx(IDXGIFactory* fac, VkPhysicalDevice dev);
 
 /**
  * \brief DXGI adapter LUID of a VkPhysicalDevice
