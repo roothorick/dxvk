@@ -47,6 +47,11 @@ DLLEXPORT void __stdcall dxvkGetVulkanImage(D3D11Texture2D* tex,
   *sampleCt = texInfo->image->info().sampleCount;
 }
 
+DLLEXPORT VkInstance __stdcall dxvkInstanceOfFactory(DXGIFactory* fac)
+{
+  
+}
+
 DLLEXPORT int32_t __stdcall dxvkPhysicalDeviceToAdapterIdx(VkPhysicalDevice dev)
 {
   

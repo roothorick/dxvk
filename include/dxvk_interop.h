@@ -64,13 +64,23 @@ DLLEXPORT void __stdcall dxvkGetVulkanImage(D3D11Texture2D* tex,
 );
 
 /**
+ * \brief Get instance of factory
+ *
+ * Retrieves the VkInstance behind a DXGIFactory
+ * \param [in] fac The DXGIFactory to be resolved
+ * \returns Its VkInstance
+ */
+DLLEXPORT VkInstance __stdcall dxvkInstanceOfFactory(DXGIFactory* fac);
+
+/**
  * \brief DXGI adapter index of a VkPhysicalDevice
  *
  * Maps the passed VkPhysicalDevice to a DXGI adapter index.
- * \param [in] physDev The VkPhysicalDevice
- * \returns the adapter index
+ * \param [in] fac DXGIFactory to be used for the lookup
+ * \param [in] physDev The VkPhysicalDevice to be looked up
+ * \returns The corresponding adapter index
  */
-DLLEXPORT int32_t __stdcall dxvkPhysicalDeviceToAdapterIdx(VkPhysicalDevice dev);
+DLLEXPORT int32_t __stdcall dxvkPhysicalDeviceToAdapterIdx(DXGIFactory* fac, VkPhysicalDevice dev);
 
 /**
  * \brief DXGI adapter LUID of a VkPhysicalDevice
