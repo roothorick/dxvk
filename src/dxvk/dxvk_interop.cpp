@@ -56,7 +56,20 @@ DLLEXPORT VkInstance __stdcall dxvkInstanceOfFactory(IDXGIFactory* fac)
 
 DLLEXPORT int32_t __stdcall dxvkPhysicalDeviceToAdapterIdx(IDXGIFactory* fac, VkPhysicalDevice dev)
 {
+  UINT i=0;
+  HRESULT hr = S_OK;
+  while(hr != DXGI_ERROR_NOT_FOUND)
+  {
+    DxgiAdapter* adp;
+    hr = fac->EnumAdapters(i, (IDXGIAdapter**) &adp);
+    if( adp->GetDXVKAdapterInternal()->handle() == dev)
+      return i;
+    
+    i++;
+  }
   
+  // Not found
+  return -1;
 }
 
 DLLEXPORT void __stdcall dxvkPhysicalDeviceToAdapterLUID(VkPhysicalDevice dev, uint64_t* luid)

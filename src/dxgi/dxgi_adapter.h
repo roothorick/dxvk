@@ -55,6 +55,12 @@ namespace dxvk {
             HMONITOR              Monitor,
             IDXGIOutput**         ppOutput);
     
+    // This version is for interop, for linking reasons
+    Rc<DxvkAdapter> STDMETHODCALLTYPE GetDXVKAdapterInternal()
+    {
+      return m_adapter;
+    }
+    
   private:
     
     using FormatMap = std::unordered_map<DXGI_FORMAT, DxgiFormatInfo>;
