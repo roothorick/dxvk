@@ -1,11 +1,11 @@
 #pragma once
 
 #ifndef DXVK_EXPORT
-#define DLLEXPORT __declspec(dllimport)
+#define DLLEXPORT extern "C" __declspec(dllimport)
 class D3D11Device;
 class D3D11Texture2D;
 #else
-#define DLLEXPORT __declspec(dllexport)
+#define DLLEXPORT extern "C" __declspec(dllexport)
 #endif
 
 /**
