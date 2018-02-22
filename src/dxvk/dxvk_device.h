@@ -337,6 +337,10 @@ namespace dxvk {
       return m_statCounters;
     }
     
+    VkQueue getGraphicsQueue() {
+      return m_graphicsQueue;
+    }
+    
   private:
     
     Rc<DxvkAdapter>           m_adapter;

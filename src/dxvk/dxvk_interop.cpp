@@ -84,11 +84,18 @@ DLLEXPORT void __stdcall dxvkGetHandlesForVulkanOps(
     VkInstance* inst,
     VkPhysicalDevice* pdev,
     VkDevice* ldev,
-    uint32_t queueFamily,
+    uint32_t* queueFamily,
     VkQueue* queue
   )
 {
+  Rc<DxvkDevice> realdev = dxdev->GetDXVKDevice();
+  Rc<DxvkAdapter> adp = realdev->adapter();
   
+  *inst = adp->instance()->handle();
+  *pdev = adp->handle();
+  *ldev = realdev->handle();
+  *queueFamily = adp->graphicsQueueFamily();
+  *queue = realdev->getGraphicsQueue();
 }
 
 namespace dxvk::interop {

@@ -52,6 +52,12 @@ namespace dxvk {
       return m_handle;
     }
     
+    DxvkInstance* instance() const {
+      // XXX: Gotta be a better way to do this. Rc needs a proper class definition, but dxvk_instance.h includes
+      // this header.
+      return &(*m_instance);
+    }
+    
     /**
      * \brief Physical device properties
      * 
