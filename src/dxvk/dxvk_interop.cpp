@@ -7,7 +7,7 @@ using namespace dxvk;
 #define DXVK_EXPORT
 #include <dxvk_interop.h>
 
-DLLEXPORT void __stdcall dxvkGetVulkanImage(D3D11Texture2D* tex,
+extern "C" DLLEXPORT void __stdcall dxvkGetVulkanImage(D3D11Texture2D* tex,
     VkImage* img,
     uint32_t* width,
     uint32_t* height,
@@ -25,13 +25,13 @@ DLLEXPORT void __stdcall dxvkGetVulkanImage(D3D11Texture2D* tex,
   *sampleCt = texInfo->image->info().sampleCount;
 }
 
-DLLEXPORT VkInstance __stdcall dxvkInstanceOfFactory(IDXGIFactory* fac)
+extern "C" DLLEXPORT VkInstance __stdcall dxvkInstanceOfFactory(IDXGIFactory* fac)
 {
   // XXX: I don't actually know how safe this is
   return ( (DxgiFactory*) fac )->GetInstanceInternal();
 }
 
-DLLEXPORT int32_t __stdcall dxvkPhysicalDeviceToAdapterIdx(IDXGIFactory* fac, VkPhysicalDevice dev)
+extern "C" DLLEXPORT int32_t __stdcall dxvkPhysicalDeviceToAdapterIdx(IDXGIFactory* fac, VkPhysicalDevice dev)
 {
   UINT i=0;
   HRESULT hr = S_OK;
@@ -49,14 +49,14 @@ DLLEXPORT int32_t __stdcall dxvkPhysicalDeviceToAdapterIdx(IDXGIFactory* fac, Vk
   return -1;
 }
 
-DLLEXPORT void __stdcall dxvkPhysicalDeviceToAdapterLUID(VkPhysicalDevice dev, uint64_t* luid)
+extern "C" DLLEXPORT void __stdcall dxvkPhysicalDeviceToAdapterLUID(VkPhysicalDevice dev, uint64_t* luid)
 {
   // TODO
   Logger::err("dxvkPhysicalDeviceToAdapterLUID: stub");
   *luid = 0;
 }
 
-DLLEXPORT void __stdcall dxvkGetHandlesForVulkanOps(
+extern "C" DLLEXPORT void __stdcall dxvkGetHandlesForVulkanOps(
     D3D11Device* dxdev,
     VkInstance* inst,
     VkPhysicalDevice* pdev,
