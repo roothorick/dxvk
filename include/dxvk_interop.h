@@ -1,11 +1,9 @@
 #pragma once
 
-#ifndef DXVK_EXPORT
-#define DLLEXPORT extern "C" __declspec(dllimport)
+#ifndef DLLEXPORT
+#define DLLEXPORT __declspec(dllimport)
 class D3D11Device;
 class D3D11Texture2D;
-#else
-#define DLLEXPORT extern "C" __declspec(dllexport)
 #endif
 
 /**
@@ -13,7 +11,7 @@ class D3D11Texture2D;
  *
  * Extracts from the passed D3D11Texture2D the VkImage behind it and additional information critical to its use.
  */
-DLLEXPORT void __stdcall dxvkGetVulkanImage(D3D11Texture2D* tex,
+extern "C" DLLEXPORT void __stdcall dxvkGetVulkanImage(D3D11Texture2D* tex,
   VkImage* img,
   uint32_t* width,
   uint32_t* height,
@@ -28,7 +26,7 @@ DLLEXPORT void __stdcall dxvkGetVulkanImage(D3D11Texture2D* tex,
  * \param [in] fac The DXGIFactory to be resolved
  * \returns Its VkInstance
  */
-DLLEXPORT VkInstance __stdcall dxvkInstanceOfFactory(IDXGIFactory* fac);
+extern "C" DLLEXPORT VkInstance __stdcall dxvkInstanceOfFactory(IDXGIFactory* fac);
 
 /**
  * \brief DXGI adapter index of a VkPhysicalDevice
@@ -38,7 +36,7 @@ DLLEXPORT VkInstance __stdcall dxvkInstanceOfFactory(IDXGIFactory* fac);
  * \param [in] physDev The VkPhysicalDevice to be looked up
  * \returns The corresponding adapter index
  */
-DLLEXPORT int32_t __stdcall dxvkPhysicalDeviceToAdapterIdx(IDXGIFactory* fac, VkPhysicalDevice dev);
+extern "C" DLLEXPORT int32_t __stdcall dxvkPhysicalDeviceToAdapterIdx(IDXGIFactory* fac, VkPhysicalDevice dev);
 
 /**
  * \brief DXGI adapter LUID of a VkPhysicalDevice
@@ -47,7 +45,7 @@ DLLEXPORT int32_t __stdcall dxvkPhysicalDeviceToAdapterIdx(IDXGIFactory* fac, Vk
  * \param [in] physDev the VkPhysicalDevice
  * \param [out] luid the adapter LUID
  */
-DLLEXPORT void __stdcall dxvkPhysicalDeviceToAdapterLUID(VkPhysicalDevice dev, uint64_t* luid);
+extern "C" DLLEXPORT void __stdcall dxvkPhysicalDeviceToAdapterLUID(VkPhysicalDevice dev, uint64_t* luid);
 
 /**
  * \brief Get Vulkan handles for doing Vulkan operations yourself
@@ -55,7 +53,7 @@ DLLEXPORT void __stdcall dxvkPhysicalDeviceToAdapterLUID(VkPhysicalDevice dev, u
  * Retrieves the instance, physical device, logical device, graphics queue family, and graphics queue associated with 
  * the passed D3D11Device.
  */
-DLLEXPORT void __stdcall dxvkGetHandlesForVulkanOps(
+extern "C" DLLEXPORT void __stdcall dxvkGetHandlesForVulkanOps(
   D3D11Device* dxdev,
   VkInstance* inst,
   VkPhysicalDevice* pdev,
