@@ -1,5 +1,3 @@
-#include "dxvk_interop_internal.h"
-
 #include "../d3d11/d3d11_device.h"
 #include "../d3d11/d3d11_texture.h"
 #include "../dxgi/dxgi_factory.h"
@@ -8,29 +6,6 @@ using namespace dxvk;
 
 #define DXVK_EXPORT
 #include <dxvk_interop.h>
-
-#include <vector>
-#include <functional>
-#include <cstring>
-#include <cstdlib>
-
-// Doesn't work with the typedefs. Not easy to fix.
-std::vector<std::function<unsigned int(char***)>> instCallbacks;
-std::vector<std::function<unsigned int(VkPhysicalDevice, char***)>> devCallbacks;
-
-DLLEXPORT void __stdcall dxvkRegisterInstanceExtCallback(instanceCallback cb)
-{
-  Logger::trace("Adding instance cb");
-  std::function<unsigned int(char***)> fnobj = *cb;
-  instCallbacks.push_back(fnobj);
-}
-
-DLLEXPORT void __stdcall dxvkRegisterDeviceExtCallback(deviceCallback cb)
-{
-  Logger::trace("Adding device cb");
-  std::function<unsigned int(VkPhysicalDevice, char***)> fnobj = *cb;
-  devCallbacks.push_back(fnobj);
-}
 
 DLLEXPORT void __stdcall dxvkGetVulkanImage(D3D11Texture2D* tex,
     VkImage* img,
@@ -98,49 +73,4 @@ DLLEXPORT void __stdcall dxvkGetHandlesForVulkanOps(
   *ldev = realdev->handle();
   *queueFamily = adp->graphicsQueueFamily();
   *queue = realdev->getGraphicsQueue();
-}
-
-namespace dxvk::interop {
-  void findEarlyInitCallbacks()
-  {
-    // TODO
-  }
-  
-  vk::NameList getExternalInstanceExtensions()
-  {
-    vk::NameList ret;
-    
-    for(unsigned int i=0;i<instCallbacks.size();i++)
-    {
-      char** newExts;
-      unsigned int newExtCt = instCallbacks[i](&newExts);
-      
-      for(unsigned int j=0;j<newExtCt;j++)
-        ret.push_back(newExts[j]);
-
-      // Freeing just the array itself. It is expected that the caller malloc()d the individual strings separately.
-      free(newExts);
-    }
-    
-    return ret;
-  }
-  
-  vk::NameList getExternalDeviceExtensions(VkPhysicalDevice* physDev)
-  {
-    vk::NameList ret;
-    
-    for(unsigned int i=0;i<devCallbacks.size();i++)
-    {
-      char** newExts;
-      unsigned int newExtCt = devCallbacks[i](*physDev,&newExts);
-      
-      for(unsigned int j=0;j<newExtCt;j++)
-        ret.push_back(newExts[j]);
-        
-      // Freeing just the array itself. It is expected that the caller malloc()d the individual strings separately.
-      free(newExts);
-    }
-    
-    return ret;
-  }
 }
