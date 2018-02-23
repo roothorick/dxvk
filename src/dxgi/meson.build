@@ -7,6 +7,9 @@ dxgi_src = [
   'dxgi_output.cpp',
   'dxgi_presenter.cpp',
   'dxgi_swapchain.cpp',
+# HACK: The contents of dxvk/ are normally put in a libdxvk.a and linked to by the DLLs. This would cause the interop
+# funcs to be discarded by ld.
+  '../dxvk/dxvk_interop.cpp',
 ]
 
 dxgi_dll = shared_library('dxgi', dxgi_src,

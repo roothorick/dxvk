@@ -23,7 +23,7 @@ dxvk_src = files([
   'dxvk_graphics.cpp',
   'dxvk_image.cpp',
   'dxvk_instance.cpp',
-  'dxvk_interop.cpp',
+# Looking for dxvk_interop.cpp? Look in ../dxgi/meson.build for a (short) explanation
   'dxvk_lifetime.cpp',
   'dxvk_main.cpp',
   'dxvk_memory.cpp',
