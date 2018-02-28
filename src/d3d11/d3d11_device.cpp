@@ -75,15 +75,20 @@ namespace dxvk {
     const D3D11_BUFFER_DESC*      pDesc,
     const D3D11_SUBRESOURCE_DATA* pInitialData,
           ID3D11Buffer**          ppBuffer) {
-    if (ppBuffer != nullptr) {
+    if (ppBuffer == nullptr)
+      return S_FALSE;
+    
+    try {
       const Com<D3D11Buffer> buffer
         = new D3D11Buffer(this, pDesc);
       
       this->InitBuffer(buffer.ptr(), pInitialData);
       *ppBuffer = buffer.ref();
+      return S_OK;
+    } catch (const DxvkError& e) {
+      Logger::err(e.message());
+      return E_FAIL;
     }
-    
-    return S_OK;
   }
   
   
@@ -91,15 +96,20 @@ namespace dxvk {
     const D3D11_TEXTURE1D_DESC*   pDesc,
     const D3D11_SUBRESOURCE_DATA* pInitialData,
           ID3D11Texture1D**       ppTexture1D) {
-    if (ppTexture1D != nullptr) {
+    if (ppTexture1D == nullptr)
+      return S_FALSE;
+    
+    try {
       const Com<D3D11Texture1D> texture
         = new D3D11Texture1D(this, pDesc);
       
       this->InitTexture(texture->GetTextureInfo()->image, pInitialData);
       *ppTexture1D = texture.ref();
+      return S_OK;
+    } catch (const DxvkError& e) {
+      Logger::err(e.message());
+      return E_FAIL;
     }
-    
-    return S_OK;
   }
   
   
@@ -107,15 +117,20 @@ namespace dxvk {
     const D3D11_TEXTURE2D_DESC*   pDesc,
     const D3D11_SUBRESOURCE_DATA* pInitialData,
           ID3D11Texture2D**       ppTexture2D) {
-    if (ppTexture2D != nullptr) {
+    if (ppTexture2D == nullptr)
+      return S_FALSE;
+    
+    try {
       const Com<D3D11Texture2D> texture
         = new D3D11Texture2D(this, pDesc);
       
       this->InitTexture(texture->GetTextureInfo()->image, pInitialData);
       *ppTexture2D = texture.ref();
+      return S_OK;
+    } catch (const DxvkError& e) {
+      Logger::err(e.message());
+      return E_FAIL;
     }
-    
-    return S_OK;
   }
   
   
@@ -123,15 +138,20 @@ namespace dxvk {
     const D3D11_TEXTURE3D_DESC*   pDesc,
     const D3D11_SUBRESOURCE_DATA* pInitialData,
           ID3D11Texture3D**       ppTexture3D) {
-    if (ppTexture3D != nullptr) {
+    if (ppTexture3D == nullptr)
+      return S_FALSE;
+      
+    try {
       const Com<D3D11Texture3D> texture
         = new D3D11Texture3D(this, pDesc);
       
       this->InitTexture(texture->GetTextureInfo()->image, pInitialData);
       *ppTexture3D = texture.ref();
+      return S_OK;
+    } catch (const DxvkError& e) {
+      Logger::err(e.message());
+      return E_FAIL;
     }
-    
-    return S_OK;
   }
   
   
@@ -161,6 +181,11 @@ namespace dxvk {
       
       D3D11_BUFFER_DESC resourceDesc;
       resource->GetDesc(&resourceDesc);
+      
+      if ((resourceDesc.BindFlags & D3D11_BIND_SHADER_RESOURCE) == 0) {
+        Logger::warn("D3D11: Trying to create SRV for buffer without D3D11_BIND_SHADER_RESOURCE");
+        return E_INVALIDARG;
+      }
       
       DxvkBufferViewCreateInfo viewInfo;
       
@@ -222,6 +247,11 @@ namespace dxvk {
       // Retrieve info about the image
       const D3D11TextureInfo* textureInfo
         = GetCommonTextureInfo(pResource);
+      
+      if ((textureInfo->bindFlags & D3D11_BIND_SHADER_RESOURCE) == 0) {
+        Logger::warn("D3D11: Trying to create SRV for texture without D3D11_BIND_SHADER_RESOURCE");
+        return E_INVALIDARG;
+      }
       
       // Fill in the view info. The view type depends solely
       // on the view dimension field in the view description,
@@ -358,6 +388,11 @@ namespace dxvk {
       D3D11_BUFFER_DESC resourceDesc;
       resource->GetDesc(&resourceDesc);
       
+      if ((resourceDesc.BindFlags & D3D11_BIND_UNORDERED_ACCESS) == 0) {
+        Logger::warn("D3D11: Trying to create UAV for buffer without D3D11_BIND_UNORDERED_ACCESS");
+        return E_INVALIDARG;
+      }
+      
       DxvkBufferViewCreateInfo viewInfo;
       
       if (desc.Buffer.Flags & D3D11_BUFFEREX_SRV_FLAG_RAW) {
@@ -408,6 +443,11 @@ namespace dxvk {
       // Retrieve info about the image
       const D3D11TextureInfo* textureInfo
         = GetCommonTextureInfo(pResource);
+      
+      if ((textureInfo->bindFlags & D3D11_BIND_UNORDERED_ACCESS) == 0) {
+        Logger::warn("D3D11: Trying to create UAV for texture without D3D11_BIND_UNORDERED_ACCESS");
+        return E_INVALIDARG;
+      }
       
       // Fill in the view info. The view type depends solely
       // on the view dimension field in the view description,
@@ -514,12 +554,33 @@ namespace dxvk {
     const D3D11TextureInfo* textureInfo
       = GetCommonTextureInfo(pResource);
     
+    if ((textureInfo->bindFlags & D3D11_BIND_RENDER_TARGET) == 0) {
+      Logger::warn("D3D11: Trying to create RTV for texture without D3D11_BIND_RENDER_TARGET");
+      return E_INVALIDARG;
+    }
+    
     // Fill in Vulkan image view info
     DxvkImageViewCreateInfo viewInfo;
     viewInfo.format = m_dxgiAdapter->LookupFormat(desc.Format, DxgiFormatMode::Color).format;
     viewInfo.aspect = imageFormatInfo(viewInfo.format)->aspectMask;
     
     switch (desc.ViewDimension) {
+      case D3D11_RTV_DIMENSION_TEXTURE1D:
+        viewInfo.type       = VK_IMAGE_VIEW_TYPE_1D;
+        viewInfo.minLevel   = desc.Texture1D.MipSlice;
+        viewInfo.numLevels  = 1;
+        viewInfo.minLayer   = 0;
+        viewInfo.numLayers  = 1;
+        break;
+        
+      case D3D11_RTV_DIMENSION_TEXTURE1DARRAY:
+        viewInfo.type       = VK_IMAGE_VIEW_TYPE_1D_ARRAY;
+        viewInfo.minLevel   = desc.Texture1DArray.MipSlice;
+        viewInfo.numLevels  = 1;
+        viewInfo.minLayer   = desc.Texture1DArray.FirstArraySlice;
+        viewInfo.numLayers  = desc.Texture1DArray.ArraySize;
+        break;
+        
       case D3D11_RTV_DIMENSION_TEXTURE2D:
         viewInfo.type       = VK_IMAGE_VIEW_TYPE_2D;
         viewInfo.minLevel   = desc.Texture2D.MipSlice;
@@ -610,12 +671,33 @@ namespace dxvk {
     const D3D11TextureInfo* textureInfo
       = GetCommonTextureInfo(pResource);
     
+    if ((textureInfo->bindFlags & D3D11_BIND_DEPTH_STENCIL) == 0) {
+      Logger::warn("D3D11: Trying to create DSV for texture without D3D11_BIND_DEPTH_STENCIL");
+      return E_INVALIDARG;
+    }
+    
     // Fill in Vulkan image view info
     DxvkImageViewCreateInfo viewInfo;
     viewInfo.format = m_dxgiAdapter->LookupFormat(desc.Format, DxgiFormatMode::Depth).format;
     viewInfo.aspect = imageFormatInfo(viewInfo.format)->aspectMask;
     
     switch (desc.ViewDimension) {
+      case D3D11_DSV_DIMENSION_TEXTURE1D:
+        viewInfo.type       = VK_IMAGE_VIEW_TYPE_1D;
+        viewInfo.minLevel   = desc.Texture1D.MipSlice;
+        viewInfo.numLevels  = 1;
+        viewInfo.minLayer   = 0;
+        viewInfo.numLayers  = 1;
+        break;
+        
+      case D3D11_DSV_DIMENSION_TEXTURE1DARRAY:
+        viewInfo.type       = VK_IMAGE_VIEW_TYPE_1D_ARRAY;
+        viewInfo.minLevel   = desc.Texture1DArray.MipSlice;
+        viewInfo.numLevels  = 1;
+        viewInfo.minLayer   = desc.Texture1DArray.FirstArraySlice;
+        viewInfo.numLayers  = desc.Texture1DArray.ArraySize;
+        break;
+        
       case D3D11_DSV_DIMENSION_TEXTURE2D:
         viewInfo.type       = VK_IMAGE_VIEW_TYPE_2D;
         viewInfo.minLevel   = desc.Texture2D.MipSlice;
@@ -777,6 +859,11 @@ namespace dxvk {
         }
       }
       
+      std::sort(bindings.begin(), bindings.end(),
+        [] (const DxvkVertexBinding& a, const DxvkVertexBinding& b) {
+          return a.binding < b.binding;
+        });
+      
       // Create the actual input layout object
       // if the application requests it.
       if (ppInputLayout != nullptr) {
@@ -807,11 +894,11 @@ namespace dxvk {
         pShaderBytecode, BytecodeLength, pClassLinkage)))
       return E_INVALIDARG;
     
-    if (ppVertexShader != nullptr) {
-      *ppVertexShader = ref(new D3D11VertexShader(
-        this, std::move(module)));
-    }
+    if (ppVertexShader == nullptr)
+      return S_FALSE;
     
+    *ppVertexShader = ref(new D3D11VertexShader(
+      this, std::move(module)));
     return S_OK;
   }
   
@@ -827,11 +914,11 @@ namespace dxvk {
         pShaderBytecode, BytecodeLength, pClassLinkage)))
       return E_INVALIDARG;
     
-    if (ppGeometryShader != nullptr) {
-      *ppGeometryShader = ref(new D3D11GeometryShader(
-        this, std::move(module)));
-    }
+    if (ppGeometryShader == nullptr)
+      return S_FALSE;
     
+    *ppGeometryShader = ref(new D3D11GeometryShader(
+      this, std::move(module)));
     return S_OK;
   }
   
@@ -862,11 +949,11 @@ namespace dxvk {
         pShaderBytecode, BytecodeLength, pClassLinkage)))
       return E_INVALIDARG;
     
-    if (ppPixelShader != nullptr) {
-      *ppPixelShader = ref(new D3D11PixelShader(
-        this, std::move(module)));
-    }
+    if (ppPixelShader == nullptr)
+      return S_FALSE;
     
+    *ppPixelShader = ref(new D3D11PixelShader(
+      this, std::move(module)));
     return S_OK;
   }
   
@@ -878,15 +965,16 @@ namespace dxvk {
           ID3D11HullShader**          ppHullShader) {
     D3D11ShaderModule module;
     
-    if (FAILED(this->CreateShaderModule(&module,
-        pShaderBytecode, BytecodeLength, pClassLinkage)))
-      return E_INVALIDARG;
+    Logger::warn("D3D11: CreateHullShader: Tessellation shaders not yet supported");
+//     if (FAILED(this->CreateShaderModule(&module,
+//         pShaderBytecode, BytecodeLength, pClassLinkage)))
+//       return E_INVALIDARG;
     
-    if (ppHullShader != nullptr) {
-      *ppHullShader = ref(new D3D11HullShader(
-        this, std::move(module)));
-    }
+    if (ppHullShader == nullptr)
+      return S_FALSE;
     
+    *ppHullShader = ref(new D3D11HullShader(
+      this, std::move(module)));
     return S_OK;
   }
   
@@ -898,15 +986,16 @@ namespace dxvk {
           ID3D11DomainShader**        ppDomainShader) {
     D3D11ShaderModule module;
     
-    if (FAILED(this->CreateShaderModule(&module,
-        pShaderBytecode, BytecodeLength, pClassLinkage)))
-      return E_INVALIDARG;
+    Logger::warn("D3D11: CreateDomainShader: Tessellation shaders not yet supported");
+//     if (FAILED(this->CreateShaderModule(&module,
+//         pShaderBytecode, BytecodeLength, pClassLinkage)))
+//       return E_INVALIDARG;
     
-    if (ppDomainShader != nullptr) {
-      *ppDomainShader = ref(new D3D11DomainShader(
-        this, std::move(module)));
-    }
+    if (ppDomainShader == nullptr)
+      return S_FALSE;
     
+    *ppDomainShader = ref(new D3D11DomainShader(
+      this, std::move(module)));
     return S_OK;
   }
   
@@ -922,11 +1011,11 @@ namespace dxvk {
         pShaderBytecode, BytecodeLength, pClassLinkage)))
       return E_INVALIDARG;
     
-    if (ppComputeShader != nullptr) {
-      *ppComputeShader = ref(new D3D11ComputeShader(
-        this, std::move(module)));
-    }
+    if (ppComputeShader == nullptr)
+      return S_FALSE;
     
+    *ppComputeShader = ref(new D3D11ComputeShader(
+      this, std::move(module)));
     return S_OK;
   }
   
@@ -1729,6 +1818,22 @@ namespace dxvk {
     pResource->GetType(&resourceDim);
     
     switch (resourceDim) {
+      case D3D11_RESOURCE_DIMENSION_TEXTURE1D: {
+        D3D11_TEXTURE1D_DESC resourceDesc;
+        static_cast<D3D11Texture1D*>(pResource)->GetDesc(&resourceDesc);
+        
+        pDesc->Format = resourceDesc.Format;
+        
+        if (resourceDesc.ArraySize == 1) {
+          pDesc->ViewDimension = D3D11_RTV_DIMENSION_TEXTURE1D;
+          pDesc->Texture1D.MipSlice = 0;
+        } else {
+          pDesc->ViewDimension = D3D11_RTV_DIMENSION_TEXTURE1DARRAY;
+          pDesc->Texture1DArray.MipSlice        = 0;
+          pDesc->Texture1DArray.FirstArraySlice = 0;
+          pDesc->Texture1DArray.ArraySize       = resourceDesc.ArraySize;
+        }
+      } return S_OK;
       
       case D3D11_RESOURCE_DIMENSION_TEXTURE2D: {
         D3D11_TEXTURE2D_DESC resourceDesc;
@@ -1784,6 +1889,22 @@ namespace dxvk {
     pResource->GetType(&resourceDim);
     
     switch (resourceDim) {
+      case D3D11_RESOURCE_DIMENSION_TEXTURE1D: {
+        D3D11_TEXTURE1D_DESC resourceDesc;
+        static_cast<D3D11Texture1D*>(pResource)->GetDesc(&resourceDesc);
+        
+        pDesc->Format = resourceDesc.Format;
+        
+        if (resourceDesc.ArraySize == 1) {
+          pDesc->ViewDimension = D3D11_DSV_DIMENSION_TEXTURE1D;
+          pDesc->Texture1D.MipSlice = 0;
+        } else {
+          pDesc->ViewDimension = D3D11_DSV_DIMENSION_TEXTURE1DARRAY;
+          pDesc->Texture1DArray.MipSlice        = 0;
+          pDesc->Texture1DArray.FirstArraySlice = 0;
+          pDesc->Texture1DArray.ArraySize       = resourceDesc.ArraySize;
+        }
+      } return S_OK;
       
       case D3D11_RESOURCE_DIMENSION_TEXTURE2D: {
         D3D11_TEXTURE2D_DESC resourceDesc;

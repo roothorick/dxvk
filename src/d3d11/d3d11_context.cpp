@@ -261,7 +261,7 @@ namespace dxvk {
       VkDeviceSize srcLength = srcBuffer.length();
       
       if (pSrcBox != nullptr) {
-        if (pSrcBox->right > pSrcBox->left)
+        if (pSrcBox->left > pSrcBox->right)
           return;  // no-op, but legal
         
         srcOffset = pSrcBox->left;
@@ -429,7 +429,9 @@ namespace dxvk {
           ID3D11RenderTargetView*           pRenderTargetView,
     const FLOAT                             ColorRGBA[4]) {
     auto rtv = static_cast<D3D11RenderTargetView*>(pRenderTargetView);
-    const Rc<DxvkImageView> dxvkView = rtv->GetImageView();
+    
+    if (rtv == nullptr)
+      return;
     
     // Find out whether the given attachment is currently bound
     // or not, and if it is, which attachment index it has.
@@ -443,6 +445,8 @@ namespace dxvk {
     // Copy the clear color into a clear value structure.
     // This should also work for images that don nott have
     // a floating point format.
+    const Rc<DxvkImageView> view = rtv->GetImageView();
+    
     VkClearColorValue clearValue;
     std::memcpy(clearValue.float32, ColorRGBA,
       sizeof(clearValue.float32));
@@ -460,10 +464,10 @@ namespace dxvk {
       VkClearRect clearRect;
       clearRect.rect.offset.x       = 0;
       clearRect.rect.offset.y       = 0;
-      clearRect.rect.extent.width   = dxvkView->mipLevelExtent(0).width;
-      clearRect.rect.extent.height  = dxvkView->mipLevelExtent(0).height;
+      clearRect.rect.extent.width   = view->mipLevelExtent(0).width;
+      clearRect.rect.extent.height  = view->mipLevelExtent(0).height;
       clearRect.baseArrayLayer      = 0;
-      clearRect.layerCount          = dxvkView->info().numLayers;
+      clearRect.layerCount          = view->info().numLayers;
       
       if (m_parent->GetFeatureLevel() < D3D_FEATURE_LEVEL_10_0)
         clearRect.layerCount        = 1;
@@ -479,7 +483,7 @@ namespace dxvk {
       // it, but we'll have to use a generic clear function.
       EmitCs([
         cClearValue = clearValue,
-        cDstView    = dxvkView
+        cDstView    = view
       ] (DxvkContext* ctx) {
         ctx->clearColorImage(cDstView->image(),
           cClearValue, cDstView->subresources());
@@ -492,6 +496,9 @@ namespace dxvk {
           ID3D11UnorderedAccessView*        pUnorderedAccessView,
     const UINT                              Values[4]) {
     auto uav = static_cast<D3D11UnorderedAccessView*>(pUnorderedAccessView);
+    
+    if (uav == nullptr)
+      return;
     
     if (uav->GetResourceType() == D3D11_RESOURCE_DIMENSION_BUFFER) {
       Logger::err("D3D11: ClearUnorderedAccessViewUint: Not supported for buffers");
@@ -525,7 +532,13 @@ namespace dxvk {
           FLOAT                             Depth,
           UINT8                             Stencil) {
     auto dsv = static_cast<D3D11DepthStencilView*>(pDepthStencilView);
-    const Rc<DxvkImageView> dxvkView = dsv->GetImageView();
+    
+    if (dsv == nullptr)
+      return;
+    
+    // Figure out which aspects to clear based
+    // on the image format and the clear flags.
+    const Rc<DxvkImageView> view = dsv->GetImageView();
     
     VkImageAspectFlags aspectMask = 0;
     
@@ -536,7 +549,7 @@ namespace dxvk {
       aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
     
     const DxvkFormatInfo* formatInfo =
-      imageFormatInfo(dxvkView->info().format);
+      imageFormatInfo(view->info().format);
     aspectMask &= formatInfo->aspectMask;
     
     VkClearDepthStencilValue clearValue;
@@ -555,10 +568,10 @@ namespace dxvk {
       VkClearRect clearRect;
       clearRect.rect.offset.x       = 0;
       clearRect.rect.offset.y       = 0;
-      clearRect.rect.extent.width   = dxvkView->mipLevelExtent(0).width;
-      clearRect.rect.extent.height  = dxvkView->mipLevelExtent(0).height;
+      clearRect.rect.extent.width   = view->mipLevelExtent(0).width;
+      clearRect.rect.extent.height  = view->mipLevelExtent(0).height;
       clearRect.baseArrayLayer      = 0;
-      clearRect.layerCount          = dxvkView->info().numLayers;
+      clearRect.layerCount          = view->info().numLayers;
       
       // FIXME Is this correct? Docs don't say anything
       if (m_parent->GetFeatureLevel() < D3D_FEATURE_LEVEL_10_0)
@@ -573,7 +586,7 @@ namespace dxvk {
     } else {
       EmitCs([
         cClearValue = clearValue,
-        cDstView    = dxvkView,
+        cDstView    = view,
         cAspectMask = aspectMask
       ] (DxvkContext* ctx) {
         VkImageSubresourceRange subresources = cDstView->subresources();
@@ -1233,8 +1246,19 @@ namespace dxvk {
           ID3D11HullShader*                 pHullShader,
           ID3D11ClassInstance* const*       ppClassInstances,
           UINT                              NumClassInstances) {
-    if (m_state.hs.shader.ptr() != pHullShader)
-      Logger::err("D3D11DeviceContext::HSSetShader: Not implemented");
+    auto shader = static_cast<D3D11HullShader*>(pHullShader);
+    
+    if (NumClassInstances != 0)
+      Logger::err("D3D11DeviceContext::HSSetShader: Class instances not supported");
+    
+    if (m_state.hs.shader != shader) {
+      m_state.hs.shader = shader;
+      
+      EmitCs([cShader = shader != nullptr ? shader->GetShader() : nullptr]
+      (DxvkContext* ctx) {
+        ctx->bindShader(VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT, cShader);
+      });
+    }
   }
   
   
@@ -1317,8 +1341,19 @@ namespace dxvk {
           ID3D11DomainShader*               pDomainShader,
           ID3D11ClassInstance* const*       ppClassInstances,
           UINT                              NumClassInstances) {
-    if (m_state.ds.shader.ptr() != pDomainShader)
-      Logger::err("D3D11DeviceContext::DSSetShader: Not implemented");
+    auto shader = static_cast<D3D11DomainShader*>(pDomainShader);
+    
+    if (NumClassInstances != 0)
+      Logger::err("D3D11DeviceContext::DSSetShader: Class instances not supported");
+    
+    if (m_state.ds.shader != shader) {
+      m_state.ds.shader = shader;
+      
+      EmitCs([cShader = shader != nullptr ? shader->GetShader() : nullptr]
+      (DxvkContext* ctx) {
+        ctx->bindShader(VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT, cShader);
+      });
+    }
   }
   
   

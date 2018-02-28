@@ -85,6 +85,9 @@ namespace dxvk {
       case DxbcInstClass::GeometryEmit:
         return this->emitGeometryEmit(ins);
       
+      case DxbcInstClass::Interpolate:
+        return this->emitInterpolate(ins);
+      
       case DxbcInstClass::TextureQuery:
         return this->emitTextureQuery(ins);
         
@@ -425,13 +428,22 @@ namespace dxvk {
           "vThreadIndexInGroup");
       } break;
       
+      case DxbcOperandType::InputCoverageMask: {
+        m_module.enableCapability(spv::CapabilitySampleRateShading);
+        m_ps.builtinSampleMaskIn = emitNewBuiltinVariable({
+          { DxbcScalarType::Uint32, 1, 1 },
+          spv::StorageClassInput },
+          spv::BuiltInSampleMask,
+          "vCoverage");
+      } break;
+      
       case DxbcOperandType::OutputCoverageMask: {
         m_module.enableCapability(spv::CapabilitySampleRateShading);
         m_ps.builtinSampleMaskOut = emitNewBuiltinVariable({
-          { DxbcScalarType::Uint32, 1, 0 },
+          { DxbcScalarType::Uint32, 1, 1 },
           spv::StorageClassOutput },
           spv::BuiltInSampleMask,
-          "oCoverage");
+          "oMask");
       } break;
       
       case DxbcOperandType::OutputDepth: {
@@ -800,10 +812,11 @@ namespace dxvk {
       res.depthTypeId   = 0;
       res.structStride  = 0;
       
-      if (resourceType == DxbcResourceDim::Texture2D
-       || resourceType == DxbcResourceDim::Texture2DArr
-       || resourceType == DxbcResourceDim::TextureCube
-       || resourceType == DxbcResourceDim::TextureCubeArr) {
+      if ((sampledType == DxbcScalarType::Float32)
+       && (resourceType == DxbcResourceDim::Texture2D
+        || resourceType == DxbcResourceDim::Texture2DArr
+        || resourceType == DxbcResourceDim::TextureCube
+        || resourceType == DxbcResourceDim::TextureCubeArr)) {
         res.depthTypeId = m_module.defImageType(sampledTypeId,
           typeInfo.dim, 1, typeInfo.array, typeInfo.ms, typeInfo.sampled,
           spv::ImageFormatUnknown);
@@ -2244,6 +2257,55 @@ namespace dxvk {
   }
   
   
+  void DxbcCompiler::emitInterpolate(const DxbcShaderInstruction& ins) {
+    // The SPIR-V instructions operate on input variable pointers,
+    // which are all declared as four-component float vectors.
+    const uint32_t registerId = ins.src[0].idx[0].offset;
+    
+    DxbcRegisterValue result;
+    result.type.ctype  = DxbcScalarType::Float32;
+    result.type.ccount = 4;
+    
+    switch (ins.op) {
+      case DxbcOpcode::EvalCentroid: {
+        result.id = m_module.opInterpolateAtCentroid(
+          getVectorTypeId(result.type),
+          m_vRegs.at(registerId));
+      } break;
+      
+      case DxbcOpcode::EvalSampleIndex: {
+        const DxbcRegisterValue sampleIndex = emitRegisterLoad(
+          ins.src[1], DxbcRegMask(true, false, false, false));
+        
+        result.id = m_module.opInterpolateAtSample(
+          getVectorTypeId(result.type),
+          m_vRegs.at(registerId),
+          sampleIndex.id);
+      } break;
+      
+      case DxbcOpcode::EvalSnapped: {
+        const DxbcRegisterValue offset = emitRegisterLoad(
+          ins.src[1], DxbcRegMask(true, true, false, false));
+        
+        result.id = m_module.opInterpolateAtOffset(
+          getVectorTypeId(result.type),
+          m_vRegs.at(registerId),
+          offset.id);
+      } break;
+      
+      default:
+        Logger::warn(str::format(
+          "DxbcCompiler: Unhandled instruction: ",
+          ins.op));
+        return;
+    }
+    
+    result = emitRegisterSwizzle(result,
+      ins.src[0].swizzle, ins.dst[0].mask);
+    emitRegisterStore(ins.dst[0], result);
+  }
+  
+  
   void DxbcCompiler::emitTextureQuery(const DxbcShaderInstruction& ins) {
     // resinfo has three operands:
     //    (dst0) The destination register
@@ -2572,17 +2634,6 @@ namespace dxvk {
           DxbcRegMask(true, false, false, false))
       : DxbcRegisterValue();
     
-    if (isDepthCompare && m_options.packDrefValueIntoCoordinates) {
-      const std::array<uint32_t, 2> packedCoordIds
-        = {{ coord.id, referenceValue.id }};
-      
-      coord.type.ccount += 1;
-      coord.id = m_module.opCompositeConstruct(
-        getVectorTypeId(coord.type),
-        packedCoordIds.size(),
-        packedCoordIds.data());
-    }
-    
     // Determine the sampled image type based on the opcode.
     const uint32_t sampledImageType = isDepthCompare
       ? m_module.defSampledImageType(m_textures.at(textureId).depthTypeId)
@@ -2696,17 +2747,6 @@ namespace dxvk {
     const DxbcRegisterValue referenceValue = isDepthCompare
       ? emitRegisterLoad(ins.src[3], DxbcRegMask(true, false, false, false))
       : DxbcRegisterValue();
-    
-    if (isDepthCompare && m_options.packDrefValueIntoCoordinates) {
-      const std::array<uint32_t, 2> packedCoordIds
-        = {{ coord.id, referenceValue.id }};
-      
-      coord.type.ccount += 1;
-      coord.id = m_module.opCompositeConstruct(
-        getVectorTypeId(coord.type),
-        packedCoordIds.size(),
-        packedCoordIds.data());
-    }
     
     // Load explicit gradients for sample operations that require them
     const bool hasExplicitGradients = ins.op == DxbcOpcode::SampleD;
@@ -3723,9 +3763,8 @@ namespace dxvk {
     
     const uint32_t ptrTypeId = getPointerTypeId(info);
     
-    const std::array<uint32_t, 2> indices = {
-      m_module.consti32(0), constId.id
-    };
+    const std::array<uint32_t, 2> indices =
+      {{ m_module.consti32(0), constId.id }};
     
     DxbcRegisterPointer result;
     result.type.ctype  = info.type.ctype;
@@ -3802,10 +3841,37 @@ namespace dxvk {
           { DxbcScalarType::Uint32, 1 },
           m_cs.builtinLocalInvocationIndex };
       
-      case DxbcOperandType::OutputCoverageMask:
-        return DxbcRegisterPointer {
-          { DxbcScalarType::Uint32, 1 },
-          m_ps.builtinSampleMaskOut };
+      case DxbcOperandType::InputCoverageMask: {
+        const std::array<uint32_t, 1> indices
+          = {{ m_module.constu32(0) }};
+        
+        DxbcRegisterPointer result;
+        result.type.ctype  = DxbcScalarType::Uint32;
+        result.type.ccount = 1;
+        result.id = m_module.opAccessChain(
+          m_module.defPointerType(
+            getVectorTypeId(result.type),
+            spv::StorageClassInput),
+          m_ps.builtinSampleMaskIn,
+          indices.size(), indices.data());
+        return result;
+      }
+        
+      case DxbcOperandType::OutputCoverageMask: {
+        const std::array<uint32_t, 1> indices
+          = {{ m_module.constu32(0) }};
+        
+        DxbcRegisterPointer result;
+        result.type.ctype  = DxbcScalarType::Uint32;
+        result.type.ccount = 1;
+        result.id = m_module.opAccessChain(
+          m_module.defPointerType(
+            getVectorTypeId(result.type),
+            spv::StorageClassOutput),
+          m_ps.builtinSampleMaskOut,
+          indices.size(), indices.data());
+        return result;
+      }
         
       case DxbcOperandType::OutputDepth:
       case DxbcOperandType::OutputDepthGe:
@@ -4778,8 +4844,8 @@ namespace dxvk {
   
   
   void DxbcCompiler::emitPsInit() {
-    m_module.enableCapability(
-      spv::CapabilityDerivativeControl);
+    m_module.enableCapability(spv::CapabilityDerivativeControl);
+    m_module.enableCapability(spv::CapabilityInterpolationFunction);
     
     m_module.setExecutionMode(m_entryPointId,
       spv::ExecutionModeOriginUpperLeft);
