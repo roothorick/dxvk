@@ -160,6 +160,10 @@ namespace dxvk {
     static HRESULT NormalizeTextureProperties(
             D3D11_COMMON_TEXTURE_DESC* pDesc);
     
+    D3D11_COMMON_TEXTURE_DESC* GetDescInternal() {
+      return &m_desc;
+    }
+    
   private:
     
     Com<D3D11Device>              m_device;
@@ -260,7 +264,7 @@ namespace dxvk {
             D3D11_TEXTURE2D_DESC *pDesc) final;
     
     D3D11_TEXTURE2D_DESC* GetDescInternal() {
-      return &m_desc;
+      return (D3D11_TEXTURE2D_DESC*) m_texture.GetDescInternal();
     }
     
     D3D11CommonTexture* GetCommonTexture() {
