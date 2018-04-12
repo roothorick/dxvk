@@ -22,7 +22,7 @@ namespace dxvk {
     
     SpirvCodeBuffer();
     SpirvCodeBuffer(uint32_t size, const uint32_t* data);
-    SpirvCodeBuffer(std::istream&& stream);
+    SpirvCodeBuffer(std::istream& stream);
     
     template<size_t N>
     SpirvCodeBuffer(const uint32_t (&data)[N])
@@ -34,9 +34,8 @@ namespace dxvk {
      * \brief Code data
      * \returns Code data
      */
-    const uint32_t* data() const {
-      return m_code.data();
-    }
+    const uint32_t* data() const { return m_code.data(); }
+          uint32_t* data()       { return m_code.data(); }
     
     /**
      * \brief Code size, in bytes
@@ -54,7 +53,8 @@ namespace dxvk {
      * \returns Instruction iterator
      */
     SpirvInstructionIterator begin() {
-      return SpirvInstructionIterator(m_code.data(), m_code.size());
+      return SpirvInstructionIterator(
+        m_code.data(), 0, m_code.size());
     }
     
     /**
@@ -64,7 +64,7 @@ namespace dxvk {
      * \returns Instruction iterator
      */
     SpirvInstructionIterator end() {
-      return SpirvInstructionIterator(nullptr, 0);
+      return SpirvInstructionIterator(nullptr, 0, 0);
     }
     
     /**
@@ -146,7 +146,7 @@ namespace dxvk {
      * exists mostly for debugging purposes.
      * \param [in] stream Output stream
      */
-    void store(std::ostream&& stream) const;
+    void store(std::ostream& stream) const;
     
     /**
      * \brief Retrieves current insertion pointer
@@ -183,24 +183,6 @@ namespace dxvk {
     void endInsertion() {
       m_ptr = m_code.size();
     }
-    
-    /**
-     * \brief Performs in-place optimization
-     * 
-     * This requires the code buffer to
-     * contain a complete SPIR-V module.
-     * \returns \c true on success
-     */
-    bool optimize();
-    
-    /**
-     * \brief Validates shader code
-     * 
-     * This requires the code buffer to
-     * contain a complete SPIR-V module.
-     * \returns \c true if the code is valid
-     */
-    bool validate() const;
     
   private:
     

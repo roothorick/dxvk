@@ -48,16 +48,24 @@ namespace dxvk {
     void STDMETHODCALLTYPE GetDesc(
             D3D11_BUFFER_DESC *pDesc) final;
     
-    /**
-     * \brief Retrieves buffer slice
-     * \returns Buffer slice containing the entire buffer
-     */
+    Rc<DxvkBuffer> GetBuffer() const {
+      return m_buffer;
+    }
+    
     DxvkBufferSlice GetBufferSlice() const {
       return DxvkBufferSlice(m_buffer, 0, m_buffer->info().size);
     }
     
     DxvkBufferSlice GetBufferSlice(VkDeviceSize offset) const {
       return DxvkBufferSlice(m_buffer, offset, m_buffer->info().size - offset);
+    }
+    
+    DxvkBufferSlice GetBufferSlice(VkDeviceSize offset, VkDeviceSize length) const {
+      return DxvkBufferSlice(m_buffer, offset, length);
+    }
+    
+    VkDeviceSize GetSize() const {
+      return m_buffer->info().size;
     }
     
     D3D11BufferInfo* GetBufferInfo() {

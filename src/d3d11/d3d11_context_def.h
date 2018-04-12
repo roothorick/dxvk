@@ -1,9 +1,23 @@
 #pragma once
 
+#include "d3d11_buffer.h"
 #include "d3d11_cmdlist.h"
 #include "d3d11_context.h"
+#include "d3d11_texture.h"
+
+#include <algorithm>
+#include <vector>
 
 namespace dxvk {
+  
+  struct D3D11DeferredContextMapEntry {
+    Com<ID3D11Resource> pResource;
+    UINT                Subresource;
+    D3D11_MAP           MapType;
+    UINT                RowPitch;
+    UINT                DepthPitch;
+    DxvkDataSlice       DataSlice;
+  };
   
   class D3D11DeferredContext : public D3D11DeviceContext {
     
@@ -22,10 +36,10 @@ namespace dxvk {
     
     void STDMETHODCALLTYPE ExecuteCommandList(
             ID3D11CommandList*  pCommandList,
-            WINBOOL             RestoreContextState) final;
+            BOOL                RestoreContextState) final;
     
     HRESULT STDMETHODCALLTYPE FinishCommandList(
-            WINBOOL             RestoreDeferredContextState,
+            BOOL                RestoreDeferredContextState,
             ID3D11CommandList   **ppCommandList) final;
     
     HRESULT STDMETHODCALLTYPE Map(
@@ -43,11 +57,47 @@ namespace dxvk {
     
     const UINT m_contextFlags;
     
+    // Command list that we're recording
     Com<D3D11CommandList> m_commandList;
+    
+    // Info about currently mapped (sub)resources. Using a vector
+    // here is reasonable since there will usually only be a small
+    // number of mapped resources per command list.
+    std::vector<D3D11DeferredContextMapEntry> m_mappedResources;
+    
+    HRESULT MapBuffer(
+            ID3D11Resource*               pResource,
+            D3D11_MAP                     MapType,
+            UINT                          MapFlags,
+            D3D11DeferredContextMapEntry* pMapEntry);
+    
+    HRESULT MapImage(
+            ID3D11Resource*               pResource,
+            UINT                          Subresource,
+            D3D11_MAP                     MapType,
+            UINT                          MapFlags,
+            D3D11DeferredContextMapEntry* pMapEntry);
+    
+    void UnmapBuffer(
+            ID3D11Resource*               pResource,
+      const D3D11DeferredContextMapEntry* pMapEntry);
+    
+    void UnmapImage(
+            ID3D11Resource*               pResource,
+            UINT                          Subresource,
+      const D3D11DeferredContextMapEntry* pMapEntry);
     
     Com<D3D11CommandList> CreateCommandList();
     
     void EmitCsChunk(Rc<DxvkCsChunk>&& chunk) final;
+    
+    auto FindMapEntry(ID3D11Resource* pResource, UINT Subresource) {
+      return std::find_if(m_mappedResources.rbegin(), m_mappedResources.rend(),
+        [pResource, Subresource] (const D3D11DeferredContextMapEntry& entry) {
+          return entry.pResource   == pResource
+              && entry.Subresource == Subresource;
+        });
+    }
     
   };
   

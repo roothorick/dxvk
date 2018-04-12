@@ -9,19 +9,28 @@ For binary releases, see the [releases](https://github.com/doitsujin/dxvk/releas
 ## Build instructions
 
 ### Requirements:
-- [wine-vulkan](https://github.com/roderickc/wine-vulkan) for Vulkan support
-- [Meson](http://mesonbuild.com/) build system (at least 0.43)
+- [wine 3.5](https://www.winehq.org/) or newer
+- [Meson](http://mesonbuild.com/) build system (at least version 0.43)
 - [MinGW64](http://mingw-w64.org/) compiler and headers (requires threading support)
 - [glslang](https://github.com/KhronosGroup/glslang) front end and validator
 
 ### Building DLLs
-Inside the dxvk directory, run:
+
+#### The simple way
+Inside the DXVK directory, run:
+```
+./package-release.sh master /your/target/directory --no-package
+```
+
+This will create a folder `dxvk-master` in `/your/target/directory`, which contains both 32-bit and 64-bit versions of DXVK.
+
+#### Compiling manually
 ```
 # 64-bit build. For 32-bit builds, replace
 # build-win64.txt with build-win32.txt
-meson --cross-file build-win64.txt build.w64
+meson --cross-file build-win64.txt --prefix /your/dxvk/directory build.w64
 cd build.w64
-meson configure -Dprefix=/your/dxvk/directory/
+meson configure 
 # for an optimized release build:
 meson configure -Dbuildtype=release
 ninja
@@ -32,6 +41,15 @@ The two libraries `dxgi.dll` and `d3d11.dll`as well as some demo executables wil
 
 ## How to use
 In order to set up a wine prefix to use DXVK instead of wined3d globally, run:
+
+```
+cd /your/compiling/directory/x32/
+WINEPREFIX=/your/wineprefix bash setup_dxvk.sh
+cd ../x64/
+WINEPREFIX=/your/wineprefix bash setup_dxvk.sh
+```
+
+When built line by line, run:
 ```
 cd /your/dxvk/directory/bin
 WINEPREFIX=/your/wineprefix bash setup_dxvk.sh
@@ -45,33 +63,28 @@ Before reporting an issue, please check the [Wiki](https://github.com/doitsujin/
 ### Online multi-player games
 Manipulation of Direct3D libraries in multi-player games may be considered cheating and can get your account **banned**. This may also apply to single-player games with an embedded or dedicated multiplayer portion. **Use at your own risk.**
 
-### Environment variables
-The behaviour of DXVK can be modified with environment variables.
+### HUD
+The `DXVK_HUD` environment variable controls a HUD which can display the framerate and some stat counters. It accepts a comma-separated list of the following options:
+- `devinfo`: Displays the name of the GPU and the driver version.
+- `fps`: Shows the current frame rate.
+- `submissions`: Shows the number of command buffers submitted per frame.
+- `drawcalls`: Shows the number of draw calls and render passes per frame.
+- `pipelines`: Shows the total number of graphics and compute pipelines.
+- `memory`: Shows the amount of device memory allocated and used.
 
-- `DXVK_DEBUG_LAYERS=1` Enables Vulkan debug layers. Highly recommended for troubleshooting and debugging purposes.
-- `DXVK_SHADER_DUMP_PATH=directory` Writes all DXBC and SPIR-V shaders to the given directory
-- `DXVK_SHADER_READ_PATH=directory` Reads SPIR-V shaders from the given directory rather than using the shader compiler.
-- `DXVK_SHADER_VALIDATE=1` Enables SPIR-V shader validation. Useful for debugging purposes.
-- `DXVK_SHADER_OPTIMIZE=1` Enables SPIR-V shader optimization. Experimental, use with care.
-- `DXVK_LOG_LEVEL=error|warn|info|debug|trace` Controls message logging.
-- `DXVK_HUD=1` Enables the HUD
+Additionally, `DXVK_HUD=1` has the same effect as `DXVK_HUD=devinfo,fps`.
 
-## Samples and executables
-In addition to the DLLs, the following standalone programs are included in the project.
-Most of them require a native `d3dcompiler_47.dll`, which you can retrieve from your
-Windows installation in case you have one.
-
-- `d3d11-compute`: Runs a simple compute shader demo.
-- `d3d11-triangle`: Renders a bunch of triangles using D3D11.
-- `dxgi-factory`: Enumerates DXGI adapters and outputs for debugging purposes.
-- `dxbc-compiler`: Compiles a DXBC shader to SPIR-V.
-- `dxbc-disasm`: Disassembles a DXBC shader.
-- `hlsl-compiler`: Compiles a HLSL shader to DXBC.
+### Debugging
+The following environment variables can be used for **debugging** purposes.
+- `DXVK_DEBUG_LAYERS=1` Enables Vulkan debug layers. Highly recommended for troubleshooting rendering issues and driver crashes. Requires the Vulkan SDK to be installed and set up within the wine prefix (`winetricks vulkansdk`).
+- `DXVK_CUSTOM_VENDOR_ID=<ID>` Specifies a custom PCI vendor ID
+- `DXVK_CUSTOM_DEVICE_ID=<ID>` Specifies a custom PCI device ID
+- `DXVK_LOG_LEVEL=none|error|warn|info|debug` Controls message logging.
 
 ## Troubleshooting
 DXVK requires threading support from your mingw-w64 build environment. If you
 are missing this, you may see "error: 'mutex' is not a member of 'std'". On
-Debian, this can usually be resolved by using the posix alternate, which
+Debian and Ubuntu, this can usually be resolved by using the posix alternate, which
 supports threading. For example, choose the posix alternate from these
 commands (use i686 for 32-bit):
 ```

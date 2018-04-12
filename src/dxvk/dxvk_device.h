@@ -9,7 +9,7 @@
 #include "dxvk_framebuffer.h"
 #include "dxvk_image.h"
 #include "dxvk_memory.h"
-#include "dxvk_options.h"
+#include "dxvk_meta_clear.h"
 #include "dxvk_pipecache.h"
 #include "dxvk_pipemanager.h"
 #include "dxvk_queue.h"
@@ -75,16 +75,6 @@ namespace dxvk {
      */
     Rc<DxvkAdapter> adapter() const {
       return m_adapter;
-    }
-    
-    /**
-     * \brief Checks whether an option is enabled
-     * 
-     * \param [in] option The option to check for
-     * \returns \c true if the option is enabled
-     */
-    bool hasOption(DxvkOption option) const {
-      return m_options.test(option);
     }
     
     /**
@@ -248,33 +238,6 @@ namespace dxvk {
       const SpirvCodeBuffer&          code);
     
     /**
-     * \brief Retrieves a compute pipeline
-     * 
-     * \param [in] layout Pipeline binding layout
-     * \param [in] cs Compute shader
-     * \returns The compute pipeline
-     */
-    Rc<DxvkComputePipeline> createComputePipeline(
-      const Rc<DxvkShader>&           cs);
-    
-    /**
-     * \brief Retrieves a graphics pipeline object
-     * 
-     * \param [in] vs Vertex shader
-     * \param [in] tcs Tessellation control shader
-     * \param [in] tes Tessellation evaluation shader
-     * \param [in] gs Geometry shader
-     * \param [in] fs Fragment shader
-     * \returns The graphics pipeline
-     */
-    Rc<DxvkGraphicsPipeline> createGraphicsPipeline(
-      const Rc<DxvkShader>&           vs,
-      const Rc<DxvkShader>&           tcs,
-      const Rc<DxvkShader>&           tes,
-      const Rc<DxvkShader>&           gs,
-      const Rc<DxvkShader>&           fs);
-    
-    /**
      * \brief Creates a swap chain
      * 
      * \param [in] surface The target surface
@@ -284,6 +247,15 @@ namespace dxvk {
     Rc<DxvkSwapchain> createSwapchain(
       const Rc<DxvkSurface>&          surface,
       const DxvkSwapchainProperties&  properties);
+    
+    /**
+     * \brief Retrieves stat counters
+     * 
+     * Can be used by the HUD to display some
+     * internal information, such as memory
+     * usage, draw calls, etc.
+     */
+    DxvkStatCounters getStatCounters();
     
     /**
      * \brief Initializes dummy resources
@@ -314,7 +286,7 @@ namespace dxvk {
      * \param [in] wakeSync (Optional) Semaphore to notify
      * \returns Synchronization fence
      */
-    Rc<DxvkFence> submitCommandList(
+    void submitCommandList(
       const Rc<DxvkCommandList>&      commandList,
       const Rc<DxvkSemaphore>&        waitSync,
       const Rc<DxvkSemaphore>&        wakeSync);
@@ -328,15 +300,7 @@ namespace dxvk {
      * used by the GPU can be safely destroyed.
      */
     void waitForIdle();
-    
-    /**
-     * \brief Retrieves stat counters
-     * \returns Stat counters
-     */
-    DxvkStatCounters queryCounters() const {
-      return m_statCounters;
-    }
-    
+
     VkQueue getGraphicsQueue() {
       return m_graphicsQueue;
     }
@@ -351,10 +315,12 @@ namespace dxvk {
     Rc<DxvkMemoryAllocator>   m_memory;
     Rc<DxvkRenderPassPool>    m_renderPassPool;
     Rc<DxvkPipelineCache>     m_pipelineCache;
-    Rc<DxvkPipelineManager>   m_pipelineManager;
+    Rc<DxvkMetaClearObjects>  m_metaClearObjects;
     
     DxvkUnboundResources      m_unboundResources;
-    DxvkOptions               m_options;
+    
+    sync::Spinlock            m_statLock;
+    DxvkStatCounters          m_statCounters;
     
     std::mutex m_submissionLock;
     VkQueue m_graphicsQueue = VK_NULL_HANDLE;
@@ -362,8 +328,6 @@ namespace dxvk {
     
     DxvkRecycler<DxvkCommandList,  16> m_recycledCommandLists;
     DxvkRecycler<DxvkStagingBuffer, 4> m_recycledStagingBuffers;
-    
-    DxvkStatCounters m_statCounters;
     
     DxvkSubmissionQueue m_submissionQueue;
     

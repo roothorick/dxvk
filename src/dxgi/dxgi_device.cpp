@@ -4,10 +4,12 @@
 namespace dxvk {
   
   DxgiDevice::DxgiDevice(
-          IDXGIAdapterPrivate*      adapter,
-    const VkPhysicalDeviceFeatures* features)
-  : m_adapter(adapter) {
-    m_device = m_adapter->GetDXVKAdapter()->createDevice(*features);
+          IDXGIObject*              pContainer,
+          IDXGIVkAdapter*           pAdapter,
+    const VkPhysicalDeviceFeatures* pFeatures)
+  : m_container (pContainer),
+    m_adapter   (pAdapter) {
+    m_device = m_adapter->GetDXVKAdapter()->createDevice(*pFeatures);
   }
   
   
@@ -16,23 +18,41 @@ namespace dxvk {
   }
   
   
+  ULONG STDMETHODCALLTYPE DxgiDevice::AddRef() {
+    return m_container->AddRef();
+  }
+  
+  
+  ULONG STDMETHODCALLTYPE DxgiDevice::Release() {
+    return m_container->Release();
+  }
+  
+  
   HRESULT STDMETHODCALLTYPE DxgiDevice::QueryInterface(REFIID riid, void** ppvObject) {
-    COM_QUERY_IFACE(riid, ppvObject, IUnknown);
-    COM_QUERY_IFACE(riid, ppvObject, IDXGIObject);
-    COM_QUERY_IFACE(riid, ppvObject, IDXGIDevice);
-    COM_QUERY_IFACE(riid, ppvObject, IDXGIDevice1);
-    COM_QUERY_IFACE(riid, ppvObject, IDXGIDevicePrivate);
-    
-    if (m_layer != nullptr)
-      return m_layer->QueryInterface(riid, ppvObject);
-    
-    Logger::warn("DxgiDevice::QueryInterface: Unknown interface query");
-    return E_NOINTERFACE;
+    return m_container->QueryInterface(riid, ppvObject);
   }
   
   
   HRESULT STDMETHODCALLTYPE DxgiDevice::GetParent(REFIID riid, void** ppParent) {
     return m_adapter->QueryInterface(riid, ppParent);
+  }
+  
+  
+  HRESULT STDMETHODCALLTYPE DxgiDevice::GetPrivateData(
+    REFGUID Name, UINT* pDataSize, void* pData) {
+    return m_container->GetPrivateData(Name, pDataSize, pData);
+  }
+  
+  
+  HRESULT STDMETHODCALLTYPE DxgiDevice::SetPrivateData(
+    REFGUID Name, UINT DataSize, const void* pData) {
+    return m_container->SetPrivateData(Name, DataSize,pData);
+  }
+  
+  
+  HRESULT STDMETHODCALLTYPE DxgiDevice::SetPrivateDataInterface(
+    REFGUID Name, const IUnknown* pUnknown) {
+    return m_container->SetPrivateDataInterface(Name, pUnknown);
   }
   
   
@@ -42,6 +62,8 @@ namespace dxvk {
           DXGI_USAGE            Usage,
     const DXGI_SHARED_RESOURCE* pSharedResource,
           IDXGISurface**        ppSurface) {
+    InitReturnPtr(ppSurface);
+    
     Logger::err("DxgiDevice::CreateSurface: Not implemented");
     return E_NOTIMPL;
   }
@@ -49,6 +71,9 @@ namespace dxvk {
   
   HRESULT STDMETHODCALLTYPE DxgiDevice::GetAdapter(
           IDXGIAdapter**        pAdapter) {
+    if (pAdapter == nullptr)
+      return DXGI_ERROR_INVALID_CALL;
+    
     *pAdapter = static_cast<IDXGIAdapter*>(m_adapter.ref());
     return S_OK;
   }
@@ -95,31 +120,33 @@ namespace dxvk {
   }
   
   
-  void STDMETHODCALLTYPE DxgiDevice::SetDeviceLayer(IUnknown* layer) {
-    m_layer = layer;
+  HRESULT STDMETHODCALLTYPE DxgiDevice::OfferResources( 
+          UINT                          NumResources,
+          IDXGIResource* const*         ppResources,
+          DXGI_OFFER_RESOURCE_PRIORITY  Priority) {
+
+    Logger::err("DxgiDevice::OfferResources: not implemented");
+    return DXGI_ERROR_UNSUPPORTED;
+  }
+
+
+  HRESULT STDMETHODCALLTYPE DxgiDevice::ReclaimResources( 
+          UINT                          NumResources,
+          IDXGIResource* const*         ppResources,
+          BOOL*                         pDiscarded) {
+    Logger::err("DxgiDevice::ReclaimResources: not implemented");
+    return DXGI_ERROR_UNSUPPORTED;    
+  }
+
+
+  HRESULT STDMETHODCALLTYPE DxgiDevice::EnqueueSetEvent(HANDLE hEvent) {
+    Logger::err("DxgiDevice::EnqueueSetEvent: not implemented");
+    return DXGI_ERROR_UNSUPPORTED;           
   }
   
   
   Rc<DxvkDevice> STDMETHODCALLTYPE DxgiDevice::GetDXVKDevice() {
     return m_device;
-  }
-  
-}
-
-
-extern "C" {
-  
-  DLLEXPORT HRESULT __stdcall DXGICreateDevicePrivate(
-          IDXGIAdapterPrivate*      pAdapter,
-    const VkPhysicalDeviceFeatures* features,
-          IDXGIDevicePrivate**      ppDevice) {
-    try {
-      *ppDevice = dxvk::ref(new dxvk::DxgiDevice(pAdapter, features));
-      return S_OK;
-    } catch (const dxvk::DxvkError& e) {
-      dxvk::Logger::err(e.message());
-      return DXGI_ERROR_UNSUPPORTED;
-    }
   }
   
 }

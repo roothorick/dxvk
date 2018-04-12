@@ -9,22 +9,41 @@ namespace dxvk {
   
   class DxgiFactory;
   
-  class DxgiDevice : public DxgiObject<IDXGIDevicePrivate> {
+  class DxgiDevice : public IDXGIVkDevice {
     
   public:
     
     DxgiDevice(
-            IDXGIAdapterPrivate*      adapter,
-      const VkPhysicalDeviceFeatures* features);
+            IDXGIObject*              pContainer,
+            IDXGIVkAdapter*           pAdapter,
+      const VkPhysicalDeviceFeatures* pFeatures);
     ~DxgiDevice();
     
+    ULONG STDMETHODCALLTYPE AddRef() final;
+    
+    ULONG STDMETHODCALLTYPE Release() final;
+    
     HRESULT STDMETHODCALLTYPE QueryInterface(
-            REFIID riid,
-            void **ppvObject) final;
+            REFIID                riid,
+            void**                ppvObject) final;
     
     HRESULT STDMETHODCALLTYPE GetParent(
-            REFIID riid,
-            void   **ppParent) final;
+            REFIID                riid,
+            void**                ppParent) final;
+    
+    HRESULT STDMETHODCALLTYPE GetPrivateData(
+            REFGUID               Name,
+            UINT*                 pDataSize,
+            void*                 pData) final;
+    
+    HRESULT STDMETHODCALLTYPE SetPrivateData(
+            REFGUID               Name,
+            UINT                  DataSize,
+      const void*                 pData) final;
+    
+    HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(
+            REFGUID               Name,
+      const IUnknown*             pUnknown) final;
     
     HRESULT STDMETHODCALLTYPE CreateSurface(
       const DXGI_SURFACE_DESC*    pDesc,
@@ -52,29 +71,29 @@ namespace dxvk {
     
     HRESULT STDMETHODCALLTYPE SetMaximumFrameLatency(
             UINT                  MaxLatency) final;
-    
-    void STDMETHODCALLTYPE SetDeviceLayer(
-            IUnknown*             layer) final;
+
+    HRESULT STDMETHODCALLTYPE OfferResources( 
+            UINT                          NumResources,
+            IDXGIResource* const*         ppResources,
+            DXGI_OFFER_RESOURCE_PRIORITY  Priority) final;
+        
+    HRESULT STDMETHODCALLTYPE ReclaimResources( 
+            UINT                          NumResources,
+            IDXGIResource* const*         ppResources,
+            BOOL*                         pDiscarded) final;
+        
+    HRESULT STDMETHODCALLTYPE EnqueueSetEvent( 
+            HANDLE                hEvent) final;
     
     Rc<DxvkDevice> STDMETHODCALLTYPE GetDXVKDevice() final;
     
   private:
     
-    Com<IDXGIAdapterPrivate> m_adapter;
-    Rc<DxvkDevice>           m_device;
+    IDXGIObject*        m_container;
     
-    IUnknown* m_layer = nullptr;
+    Com<IDXGIVkAdapter> m_adapter;
+    Rc<DxvkDevice>      m_device;
     
   };
 
-}
-
-
-extern "C" {
-  
-  DLLEXPORT HRESULT __stdcall DXGICreateDevicePrivate(
-          IDXGIAdapterPrivate*      pAdapter,
-    const VkPhysicalDeviceFeatures* features,
-          IDXGIDevicePrivate**      ppDevice);
-  
 }

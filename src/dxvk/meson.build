@@ -1,4 +1,17 @@
-dxvk_hud_shaders = files([
+dxvk_shaders = files([
+  'shaders/dxvk_clear_buffer_u.comp',
+  'shaders/dxvk_clear_buffer_f.comp',
+  'shaders/dxvk_clear_image1d_u.comp',
+  'shaders/dxvk_clear_image1d_f.comp',
+  'shaders/dxvk_clear_image1darr_u.comp',
+  'shaders/dxvk_clear_image1darr_f.comp',
+  'shaders/dxvk_clear_image2d_u.comp',
+  'shaders/dxvk_clear_image2d_f.comp',
+  'shaders/dxvk_clear_image2darr_u.comp',
+  'shaders/dxvk_clear_image2darr_f.comp',
+  'shaders/dxvk_clear_image3d_u.comp',
+  'shaders/dxvk_clear_image3d_f.comp',
+  
   'hud/shaders/hud_text_frag.frag',
   'hud/shaders/hud_text_vert.vert',
 ])
@@ -27,8 +40,8 @@ dxvk_src = files([
   'dxvk_lifetime.cpp',
   'dxvk_main.cpp',
   'dxvk_memory.cpp',
+  'dxvk_meta_clear.cpp',
   'dxvk_meta_resolve.cpp',
-  'dxvk_options.cpp',
   'dxvk_pipecache.cpp',
   'dxvk_pipelayout.cpp',
   'dxvk_pipemanager.cpp',
@@ -49,9 +62,11 @@ dxvk_src = files([
   'dxvk_util.cpp',
   
   'hud/dxvk_hud.cpp',
+  'hud/dxvk_hud_config.cpp',
   'hud/dxvk_hud_devinfo.cpp',
   'hud/dxvk_hud_font.cpp',
   'hud/dxvk_hud_fps.cpp',
+  'hud/dxvk_hud_stats.cpp',
   'hud/dxvk_hud_text.cpp',
   
   'vulkan/dxvk_vulkan_extensions.cpp',
@@ -61,10 +76,11 @@ dxvk_src = files([
 
 thread_dep = dependency('threads')
 
-dxvk_lib = static_library('dxvk', dxvk_src, glsl_generator.process(dxvk_hud_shaders),
+dxvk_lib = static_library('dxvk', dxvk_src, glsl_generator.process(dxvk_shaders),
   link_with           : [ util_lib, spirv_lib ],
   dependencies        : [ thread_dep, lib_vulkan ],
-  include_directories : [ dxvk_include_path ])
+  include_directories : [ dxvk_include_path ],
+  override_options    : ['cpp_std='+dxvk_cpp_std])
 
 dxvk_dep = declare_dependency(
   link_with           : [ dxvk_lib ],

@@ -282,7 +282,7 @@ namespace dxvk {
       { DxbcOperandKind::SrcReg, DxbcScalarType::Float32 },
     } },
     /* Nop                                  */
-    { },
+    { 0, DxbcInstClass::NoOperation },
     /* Not                                  */
     { 2, DxbcInstClass::VectorAlu, {
       { DxbcOperandKind::DstReg, DxbcScalarType::Uint32 },
@@ -553,7 +553,11 @@ namespace dxvk {
       { DxbcOperandKind::SrcReg, DxbcScalarType::Float32 },
     } },
     /* SamplePos                            */
-    { },
+    { 3, DxbcInstClass::TextureQueryMsPos, {
+      { DxbcOperandKind::DstReg, DxbcScalarType::Float32 },
+      { DxbcOperandKind::SrcReg, DxbcScalarType::Uint32  },
+      { DxbcOperandKind::SrcReg, DxbcScalarType::Uint32  },
+    } },
     /* SampleInfo                           */
     { 2, DxbcInstClass::TextureQueryMs, {
       { DxbcOperandKind::DstReg, DxbcScalarType::Uint32  },
@@ -562,13 +566,13 @@ namespace dxvk {
     /* Reserved1                            */
     { },
     /* HsDecls                              */
-    { },
+    { 0, DxbcInstClass::HullShaderPhase },
     /* HsControlPointPhase                  */
-    { },
+    { 0, DxbcInstClass::HullShaderPhase },
     /* HsForkPhase                          */
-    { },
+    { 0, DxbcInstClass::HullShaderPhase },
     /* HsJoinPhase                          */
-    { },
+    { 0, DxbcInstClass::HullShaderPhase },
     /* EmitStream                           */
     { 1, DxbcInstClass::GeometryEmit, {
       { DxbcOperandKind::DstReg, DxbcScalarType::Uint32  },
@@ -716,21 +720,27 @@ namespace dxvk {
     /* DclInterface                         */
     { },
     /* DclInputControlPointCount            */
-    { },
+    { 0, DxbcInstClass::Declaration },
     /* DclOutputControlPointCount           */
-    { },
+    { 0, DxbcInstClass::Declaration },
     /* DclTessDomain                        */
-    { },
+    { 0, DxbcInstClass::Declaration },
     /* DclTessPartitioning                  */
-    { },
+    { 0, DxbcInstClass::Declaration },
     /* DclTessOutputPrimitive               */
-    { },
+    { 0, DxbcInstClass::Declaration },
     /* DclHsMaxTessFactor                   */
-    { },
+    { 1, DxbcInstClass::Declaration, {
+      { DxbcOperandKind::Imm32, DxbcScalarType::Float32 },
+    } },
     /* DclHsForkPhaseInstanceCount          */
-    { },
+    { 1, DxbcInstClass::HullShaderInstCnt, {
+      { DxbcOperandKind::Imm32, DxbcScalarType::Uint32 },
+    } },
     /* DclHsJoinPhaseInstanceCount          */
-    { },
+    { 1, DxbcInstClass::HullShaderInstCnt, {
+      { DxbcOperandKind::Imm32, DxbcScalarType::Uint32 },
+    } },
     /* DclThreadGroup                       */
     { 3, DxbcInstClass::Declaration, {
       { DxbcOperandKind::Imm32, DxbcScalarType::Uint32 },
@@ -917,28 +927,28 @@ namespace dxvk {
       { DxbcOperandKind::SrcReg, DxbcScalarType::Uint32 },
       { DxbcOperandKind::SrcReg, DxbcScalarType::Uint32 },
     } },
-    /* ImmAtomicImax                        */
+    /* ImmAtomicIMax                        */
     { 4, DxbcInstClass::Atomic, {
       { DxbcOperandKind::DstReg, DxbcScalarType::Sint32 },
       { DxbcOperandKind::DstReg, DxbcScalarType::Sint32 },
       { DxbcOperandKind::SrcReg, DxbcScalarType::Sint32 },
       { DxbcOperandKind::SrcReg, DxbcScalarType::Sint32 },
     } },
-    /* ImmAtomicImin                        */
+    /* ImmAtomicIMin                        */
     { 4, DxbcInstClass::Atomic, {
       { DxbcOperandKind::DstReg, DxbcScalarType::Sint32 },
       { DxbcOperandKind::DstReg, DxbcScalarType::Sint32 },
       { DxbcOperandKind::SrcReg, DxbcScalarType::Sint32 },
       { DxbcOperandKind::SrcReg, DxbcScalarType::Sint32 },
     } },
-    /* ImmAtomicUmax                        */
+    /* ImmAtomicUMax                        */
     { 4, DxbcInstClass::Atomic, {
       { DxbcOperandKind::DstReg, DxbcScalarType::Uint32 },
       { DxbcOperandKind::DstReg, DxbcScalarType::Uint32 },
       { DxbcOperandKind::SrcReg, DxbcScalarType::Sint32 },
       { DxbcOperandKind::SrcReg, DxbcScalarType::Uint32 },
     } },
-    /* ImmAtomicUmin                        */
+    /* ImmAtomicUMin                        */
     { 4, DxbcInstClass::Atomic, {
       { DxbcOperandKind::DstReg, DxbcScalarType::Uint32 },
       { DxbcOperandKind::DstReg, DxbcScalarType::Uint32 },

@@ -49,7 +49,25 @@ namespace dxvk {
     Depth = 2,
   };
 }
+
+
+/**
+ * \brief Private DXGI device interface
+ * 
+ * The implementation of \c IDXGIDevice stores a
+ * \ref DxvkDevice which can be retrieved using
+ * this interface.
+ */
+MIDL_INTERFACE("7a622cf6-627a-46b2-b52f-360ef3da831c")
+IDXGIVkDevice : public IDXGIDevice2 {
+  static const GUID guid;
   
+  virtual ~IDXGIVkDevice() { }
+  
+  virtual dxvk::Rc<dxvk::DxvkDevice> STDMETHODCALLTYPE GetDXVKDevice() = 0;
+};
+
+
 /**
  * \brief Private DXGI adapter interface
  * 
@@ -58,10 +76,23 @@ namespace dxvk {
  * this interface.
  */
 MIDL_INTERFACE("907bf281-ea3c-43b4-a8e4-9f231107b4ff")
-IDXGIAdapterPrivate : public IDXGIAdapter1 {
+IDXGIVkAdapter : public IDXGIAdapter1 {
   static const GUID guid;
   
   virtual dxvk::Rc<dxvk::DxvkAdapter> STDMETHODCALLTYPE GetDXVKAdapter() = 0;
+  
+  /**
+   * \brief Creates a DXGI device object
+   * 
+   * \param [in] pAdapter The adapter
+   * \param [in] pFeatures Device features to enable
+   * \param [out] ppDevice The DXGI device object
+   * \returns \c S_OK on success, or an error code
+   */
+  virtual HRESULT STDMETHODCALLTYPE CreateDevice(
+          IDXGIObject*              pContainer,
+    const VkPhysicalDeviceFeatures* pFeatures,
+          IDXGIVkDevice**           ppDevice) = 0;
   
   /**
    * \brief Maps a DXGI format to a compatible Vulkan format
@@ -81,24 +112,6 @@ IDXGIAdapterPrivate : public IDXGIAdapter1 {
 
 
 /**
- * \brief Private DXGI device interface
- * 
- * The implementation of \c IDXGIDevice stores a
- * \ref DxvkDevice which can be retrieved using
- * this interface.
- */
-MIDL_INTERFACE("7a622cf6-627a-46b2-b52f-360ef3da831c")
-IDXGIDevicePrivate : public IDXGIDevice1 {
-  static const GUID guid;
-  
-  virtual void STDMETHODCALLTYPE SetDeviceLayer(
-          IUnknown* layer) = 0;
-  
-  virtual dxvk::Rc<dxvk::DxvkDevice> STDMETHODCALLTYPE GetDXVKDevice() = 0;
-};
-
-
-/**
  * \brief Swap chain back buffer interface
  * 
  * Allows the swap chain and presenter to query
@@ -106,7 +119,7 @@ IDXGIDevicePrivate : public IDXGIDevice1 {
  * a texture object specified by the client API.
  */
 MIDL_INTERFACE("5679becd-8547-4d93-96a1-e61a1ce7ef37")
-IDXGIPresentBackBuffer : public IUnknown {
+IDXGIVkBackBuffer : public IUnknown {
   static const GUID guid;
   
   virtual dxvk::Rc<dxvk::DxvkImage> GetDXVKImage() = 0;
@@ -121,17 +134,19 @@ IDXGIPresentBackBuffer : public IUnknown {
  * back buffer interface.
  */
 MIDL_INTERFACE("79352328-16f2-4f81-9746-9c2e2ccd43cf")
-IDXGIPresentDevicePrivate : public IUnknown {
+IDXGIVkPresenter : public IUnknown {
   static const GUID guid;
   
   /**
    * \brief Creates a swap chain back buffer
    * 
+   * \param [in] pSwapChainDesc Swap chain description
+   * \param [out] ppBackBuffer The swap chain back buffer
    * \returns \c S_OK on success
    */
   virtual HRESULT STDMETHODCALLTYPE CreateSwapChainBackBuffer(
     const DXGI_SWAP_CHAIN_DESC*       pSwapChainDesc,
-          IDXGIPresentBackBuffer**    ppBackBuffer) = 0;
+          IDXGIVkBackBuffer**         ppBackBuffer) = 0;
   
   /**
    * \brief Flushes the immediate context
@@ -155,8 +170,14 @@ IDXGIPresentDevicePrivate : public IUnknown {
           void**      ppDevice) = 0;
 };
 
-
-DXVK_DEFINE_GUID(IDXGIAdapterPrivate);
-DXVK_DEFINE_GUID(IDXGIDevicePrivate);
-DXVK_DEFINE_GUID(IDXGIPresentBackBuffer);
-DXVK_DEFINE_GUID(IDXGIPresentDevicePrivate);
+#ifdef _MSC_VER
+struct __declspec(uuid("907bf281-ea3c-43b4-a8e4-9f231107b4ff")) IDXGIVkAdapter;
+struct __declspec(uuid("7a622cf6-627a-46b2-b52f-360ef3da831c")) IDXGIVkDevice;
+struct __declspec(uuid("5679becd-8547-4d93-96a1-e61a1ce7ef37")) IDXGIVkBackBuffer;
+struct __declspec(uuid("79352328-16f2-4f81-9746-9c2e2ccd43cf")) IDXGIVkPresenter;
+#else
+DXVK_DEFINE_GUID(IDXGIVkAdapter);
+DXVK_DEFINE_GUID(IDXGIVkDevice);
+DXVK_DEFINE_GUID(IDXGIVkBackBuffer);
+DXVK_DEFINE_GUID(IDXGIVkPresenter);
+#endif

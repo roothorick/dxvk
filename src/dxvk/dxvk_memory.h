@@ -8,6 +8,17 @@ namespace dxvk {
   class DxvkMemoryChunk;
   class DxvkMemoryAllocator;
   
+  /**
+   * \brief Memory stats
+   * 
+   * Reports the amount of device memory
+   * allocated and used by the application.
+   */
+  struct DxvkMemoryStats {
+    VkDeviceSize memoryAllocated = 0;
+    VkDeviceSize memoryUsed      = 0;
+  };
+  
   
   /**
    * \brief Memory slice
@@ -72,6 +83,8 @@ namespace dxvk {
     VkDeviceSize      m_length = 0;
     void*             m_mapPtr = nullptr;
     
+    void free();
+    
   };
   
   
@@ -130,7 +143,7 @@ namespace dxvk {
     VkDeviceMemory  const m_memory;
     void*           const m_mapPtr;
     VkDeviceSize    const m_size;
-    size_t m_delta = 0;
+    
     std::vector<FreeSlice> m_freeList;
     
   };
@@ -172,6 +185,15 @@ namespace dxvk {
             VkDeviceSize size,
             VkDeviceSize align);
     
+    /**
+     * \brief Queries memory stats
+     * 
+     * Returns the amount of memory
+     * allocated and used on this heap.
+     * \returns Global memory stats
+     */
+    DxvkMemoryStats getMemoryStats() const;
+    
   private:
     
     const Rc<vk::DeviceFn>           m_vkd;
@@ -182,11 +204,15 @@ namespace dxvk {
     std::mutex                       m_mutex;
     std::vector<Rc<DxvkMemoryChunk>> m_chunks;
     
+    std::atomic<VkDeviceSize>        m_memoryAllocated = { 0ull };
+    std::atomic<VkDeviceSize>        m_memoryUsed      = { 0ull };
+    
     VkDeviceMemory allocDeviceMemory(
             VkDeviceSize    memorySize);
     
     void freeDeviceMemory(
-            VkDeviceMemory  memory);
+            VkDeviceMemory  memory,
+            VkDeviceSize    memorySize);
     
     void* mapDeviceMemory(
             VkDeviceMemory  memory);
@@ -215,6 +241,18 @@ namespace dxvk {
     ~DxvkMemoryAllocator();
     
     /**
+     * \brief Buffer-image granularity
+     * 
+     * The granularity between linear and non-linear
+     * resources in adjacent memory locations. See
+     * section 11.6 of the Vulkan spec for details.
+     * \returns Buffer-image granularity
+     */
+    VkDeviceSize bufferImageGranularity() const {
+      return m_devProps.limits.bufferImageGranularity;
+    }
+    
+    /**
      * \brief Allocates device memory
      * 
      * \param [in] req Memory requirements
@@ -225,9 +263,19 @@ namespace dxvk {
       const VkMemoryRequirements& req,
       const VkMemoryPropertyFlags flags);
     
+    /**
+     * \brief Queries memory stats
+     * 
+     * Returns the total amount of device memory
+     * allocated and used by all available heaps.
+     * \returns Global memory stats
+     */
+    DxvkMemoryStats getMemoryStats() const;
+    
   private:
     
     const Rc<vk::DeviceFn>                 m_vkd;
+    const VkPhysicalDeviceProperties       m_devProps;
     const VkPhysicalDeviceMemoryProperties m_memProps;
     
     std::array<Rc<DxvkMemoryHeap>, VK_MAX_MEMORY_TYPES> m_heaps;

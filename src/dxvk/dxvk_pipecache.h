@@ -1,6 +1,15 @@
 #pragma once
 
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <fstream>
+#include <thread>
+
 #include "dxvk_include.h"
+
+#include "../util/sha1/sha1_util.h"
+#include "../util/util_env.h"
 
 namespace dxvk {
   
@@ -27,8 +36,8 @@ namespace dxvk {
     
   private:
     
-    Rc<vk::DeviceFn> m_vkd;
-    VkPipelineCache  m_handle;
+    Rc<vk::DeviceFn>        m_vkd;
+    VkPipelineCache         m_handle;
     
   };
   

@@ -1,3 +1,4 @@
+#include <chrono>
 #include <cstring>
 
 #include "dxvk_compute.h"
@@ -26,42 +27,93 @@ namespace dxvk {
     
     m_layout = new DxvkPipelineLayout(m_vkd,
       slotMapping.bindingCount(),
-      slotMapping.bindingInfos());
+      slotMapping.bindingInfos(),
+      VK_PIPELINE_BIND_POINT_COMPUTE);
     
     m_cs = cs->createShaderModule(m_vkd, slotMapping);
-    
-    this->compilePipeline();
   }
   
   
   DxvkComputePipeline::~DxvkComputePipeline() {
-    if (m_pipeline != VK_NULL_HANDLE)
-      m_vkd->vkDestroyPipeline(m_vkd->device(), m_pipeline, nullptr);
+    this->destroyPipelines();
   }
   
   
   VkPipeline DxvkComputePipeline::getPipelineHandle(
-    const DxvkComputePipelineStateInfo& state) const {
-    // TODO take pipeine state into account
-    return m_pipeline;
+    const DxvkComputePipelineStateInfo& state,
+          DxvkStatCounters&             stats) {
+    for (const PipelineStruct& pair : m_pipelines) {
+      if (pair.stateVector == state)
+        return pair.pipeline;
+    }
+    
+    VkPipeline pipeline = this->compilePipeline(state, m_basePipeline);
+    m_pipelines.push_back({ state, pipeline });
+    
+    if (m_basePipeline == VK_NULL_HANDLE)
+      m_basePipeline = pipeline;
+    
+    stats.addCtr(DxvkStatCounter::PipeCountCompute, 1);
+    return pipeline;
   }
   
   
-  void DxvkComputePipeline::compilePipeline() {
+  VkPipeline DxvkComputePipeline::compilePipeline(
+    const DxvkComputePipelineStateInfo& state,
+          VkPipeline                    baseHandle) const {
     std::vector<VkDescriptorSetLayoutBinding> bindings;
+
+    if (Logger::logLevel() <= LogLevel::Debug) {
+      Logger::debug("Compiling compute pipeline..."); 
+      Logger::debug(str::format("  cs  : ", m_cs ->debugName()));
+    }
+    
+    std::array<VkBool32,                 MaxNumActiveBindings> specData;
+    std::array<VkSpecializationMapEntry, MaxNumActiveBindings> specMap;
+    
+    for (uint32_t i = 0; i < MaxNumActiveBindings; i++) {
+      specData[i] = state.bsBindingState.isBound(i) ? VK_TRUE : VK_FALSE;
+      specMap [i] = { i, static_cast<uint32_t>(sizeof(VkBool32)) * i, sizeof(VkBool32) };
+    }
+    
+    VkSpecializationInfo specInfo;
+    specInfo.mapEntryCount    = specMap.size();
+    specInfo.pMapEntries      = specMap.data();
+    specInfo.dataSize         = specData.size() * sizeof(VkBool32);
+    specInfo.pData            = specData.data();
     
     VkComputePipelineCreateInfo info;
     info.sType                = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     info.pNext                = nullptr;
-    info.flags                = 0;
-    info.stage                = m_cs->stageInfo(nullptr);
+    info.flags                = baseHandle == VK_NULL_HANDLE
+      ? VK_PIPELINE_CREATE_ALLOW_DERIVATIVES_BIT
+      : VK_PIPELINE_CREATE_DERIVATIVE_BIT;
+    info.stage                = m_cs->stageInfo(&specInfo);
     info.layout               = m_layout->pipelineLayout();
-    info.basePipelineHandle   = VK_NULL_HANDLE;
+    info.basePipelineHandle   = baseHandle;
     info.basePipelineIndex    = -1;
     
+    // Time pipeline compilation for debugging purposes
+    auto t0 = std::chrono::high_resolution_clock::now();
+    
+    VkPipeline pipeline = VK_NULL_HANDLE;
     if (m_vkd->vkCreateComputePipelines(m_vkd->device(),
-          m_cache->handle(), 1, &info, nullptr, &m_pipeline) != VK_SUCCESS)
+          m_cache->handle(), 1, &info, nullptr, &pipeline) != VK_SUCCESS) {
       Logger::err("DxvkComputePipeline: Failed to compile pipeline");
+      Logger::err(str::format("  cs  : ", m_cs ->debugName()));
+      return VK_NULL_HANDLE;
+    }
+    
+    auto t1 = std::chrono::high_resolution_clock::now();
+    auto td = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0);
+    Logger::debug(str::format("DxvkComputePipeline: Finished in ", td.count(), " ms"));
+    return pipeline;
+  }
+  
+  
+  void DxvkComputePipeline::destroyPipelines() {
+    for (const PipelineStruct& pair : m_pipelines)
+      m_vkd->vkDestroyPipeline(m_vkd->device(), pair.pipeline, nullptr);
   }
   
 }

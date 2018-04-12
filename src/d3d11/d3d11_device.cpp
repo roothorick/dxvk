@@ -15,26 +15,84 @@
 
 namespace dxvk {
   
+  D3D11DeviceContainer::D3D11DeviceContainer() {
+    
+  }
+  
+  
+  D3D11DeviceContainer::~D3D11DeviceContainer() {
+    delete m_d3d11Presenter;
+    delete m_d3d11Device;
+    delete m_dxgiDevice;
+  }
+  
+  
+  HRESULT STDMETHODCALLTYPE D3D11DeviceContainer::QueryInterface(REFIID riid, void** ppvObject) {
+    *ppvObject = nullptr;
+    
+    if (riid == __uuidof(IUnknown)
+     || riid == __uuidof(IDXGIObject)) {
+      *ppvObject = ref(this);
+      return S_OK;
+    }
+    
+    if (riid == __uuidof(IDXGIDevice)
+     || riid == __uuidof(IDXGIDevice1)
+     || riid == __uuidof(IDXGIDevice2)
+     || riid == __uuidof(IDXGIVkDevice)) {
+      *ppvObject = ref(m_dxgiDevice);
+      return S_OK;
+    }
+    
+    if (riid == __uuidof(ID3D11Device)
+     || riid == __uuidof(ID3D11Device1)) {
+      *ppvObject = ref(m_d3d11Device);
+      return S_OK;
+    }
+    
+    if (riid == __uuidof(IDXGIVkPresenter)) {
+      *ppvObject = ref(m_d3d11Presenter);
+      return S_OK;
+    }
+    
+    if (riid == __uuidof(ID3D11Debug))
+      return E_NOINTERFACE;      
+    
+    // Undocumented interfaces that are queried by some games
+    if (riid == GUID{0xd56e2a4c,0x5127,0x8437,{0x65,0x8a,0x98,0xc5,0xbb,0x78,0x94,0x98}})
+      return E_NOINTERFACE;
+    
+    Logger::warn("D3D11DeviceContainer::QueryInterface: Unknown interface query");
+    Logger::warn(str::format(riid));
+    return E_NOINTERFACE;
+  }
+  
+
+  HRESULT STDMETHODCALLTYPE D3D11DeviceContainer::GetParent(
+          REFIID                  riid,
+          void**                  ppParent) {
+    return m_dxgiDevice->GetParent(riid, ppParent);
+  }
+  
+  
   D3D11Device::D3D11Device(
-          IDXGIDevicePrivate* dxgiDevice,
-          D3D_FEATURE_LEVEL   featureLevel,
-          UINT                featureFlags)
-  : m_dxgiDevice    (dxgiDevice),
-    m_presentDevice (new D3D11PresentDevice()),
-    m_featureLevel  (featureLevel),
-    m_featureFlags  (featureFlags),
-    m_dxvkDevice    (m_dxgiDevice->GetDXVKDevice()),
+          IDXGIObject*        pContainer,
+          IDXGIVkDevice*      pDxgiDevice,
+          D3D_FEATURE_LEVEL   FeatureLevel,
+          UINT                FeatureFlags)
+  : m_container     (pContainer),
+    m_featureLevel  (FeatureLevel),
+    m_featureFlags  (FeatureFlags),
+    m_dxvkDevice    (pDxgiDevice->GetDXVKDevice()),
     m_dxvkAdapter   (m_dxvkDevice->adapter()),
+    m_d3d11Options  (D3D11GetAppOptions(env::getExeName())),
     m_dxbcOptions   (m_dxvkDevice) {
     Com<IDXGIAdapter> adapter;
     
-    if (FAILED(m_dxgiDevice->GetAdapter(&adapter))
-     || FAILED(adapter->QueryInterface(__uuidof(IDXGIAdapterPrivate),
+    if (FAILED(pDxgiDevice->GetAdapter(&adapter))
+     || FAILED(adapter->QueryInterface(__uuidof(IDXGIVkAdapter),
           reinterpret_cast<void**>(&m_dxgiAdapter))))
       throw DxvkError("D3D11Device: Failed to query adapter");
-    
-    m_dxgiDevice->SetDeviceLayer(this);
-    m_presentDevice->SetDeviceLayer(this);
     
     m_context = new D3D11ImmediateContext(this, m_dxvkDevice);
     
@@ -47,27 +105,22 @@ namespace dxvk {
   
   
   D3D11Device::~D3D11Device() {
-    m_presentDevice->SetDeviceLayer(nullptr);
-    m_dxgiDevice->SetDeviceLayer(nullptr);
     delete m_context;
   }
   
   
+  ULONG STDMETHODCALLTYPE D3D11Device::AddRef() {
+    return m_container->AddRef();
+  }
+  
+  
+  ULONG STDMETHODCALLTYPE D3D11Device::Release() {
+    return m_container->Release();
+  }
+  
+  
   HRESULT STDMETHODCALLTYPE D3D11Device::QueryInterface(REFIID riid, void** ppvObject) {
-    COM_QUERY_IFACE(riid, ppvObject, IUnknown);
-    COM_QUERY_IFACE(riid, ppvObject, ID3D11Device);
-    
-    if (riid == __uuidof(IDXGIDevice)
-     || riid == __uuidof(IDXGIDevice1)
-     || riid == __uuidof(IDXGIDevicePrivate))
-      return m_dxgiDevice->QueryInterface(riid, ppvObject);
-    
-    if (riid == __uuidof(IDXGIPresentDevicePrivate))
-      return m_presentDevice->QueryInterface(riid, ppvObject);
-    
-    Logger::warn("D3D11Device::QueryInterface: Unknown interface query");
-    Logger::warn(str::format(riid));
-    return E_NOINTERFACE;
+    return m_container->QueryInterface(riid, ppvObject);
   }
     
   
@@ -75,6 +128,8 @@ namespace dxvk {
     const D3D11_BUFFER_DESC*      pDesc,
     const D3D11_SUBRESOURCE_DATA* pInitialData,
           ID3D11Buffer**          ppBuffer) {
+    InitReturnPtr(ppBuffer);
+    
     if (ppBuffer == nullptr)
       return S_FALSE;
     
@@ -96,14 +151,30 @@ namespace dxvk {
     const D3D11_TEXTURE1D_DESC*   pDesc,
     const D3D11_SUBRESOURCE_DATA* pInitialData,
           ID3D11Texture1D**       ppTexture1D) {
+    InitReturnPtr(ppTexture1D);
+    
+    D3D11_COMMON_TEXTURE_DESC desc;
+    desc.Width          = pDesc->Width;
+    desc.Height         = 1;
+    desc.Depth          = 1;
+    desc.MipLevels      = pDesc->MipLevels;
+    desc.ArraySize      = pDesc->ArraySize;
+    desc.Format         = pDesc->Format;
+    desc.SampleDesc     = DXGI_SAMPLE_DESC { 1, 0 };
+    desc.Usage          = pDesc->Usage;
+    desc.BindFlags      = pDesc->BindFlags;
+    desc.CPUAccessFlags = pDesc->CPUAccessFlags;
+    desc.MiscFlags      = pDesc->MiscFlags;
+    
+    if (FAILED(D3D11CommonTexture::NormalizeTextureProperties(&desc)))
+      return E_INVALIDARG;
+    
     if (ppTexture1D == nullptr)
       return S_FALSE;
     
     try {
-      const Com<D3D11Texture1D> texture
-        = new D3D11Texture1D(this, pDesc);
-      
-      this->InitTexture(texture->GetTextureInfo()->image, pInitialData);
+      const Com<D3D11Texture1D> texture = new D3D11Texture1D(this, &desc);
+      this->InitTexture(texture->GetCommonTexture()->GetImage(), pInitialData);
       *ppTexture1D = texture.ref();
       return S_OK;
     } catch (const DxvkError& e) {
@@ -117,14 +188,30 @@ namespace dxvk {
     const D3D11_TEXTURE2D_DESC*   pDesc,
     const D3D11_SUBRESOURCE_DATA* pInitialData,
           ID3D11Texture2D**       ppTexture2D) {
+    InitReturnPtr(ppTexture2D);
+    
+    D3D11_COMMON_TEXTURE_DESC desc;
+    desc.Width          = pDesc->Width;
+    desc.Height         = pDesc->Height;
+    desc.Depth          = 1;
+    desc.MipLevels      = pDesc->MipLevels;
+    desc.ArraySize      = pDesc->ArraySize;
+    desc.Format         = pDesc->Format;
+    desc.SampleDesc     = pDesc->SampleDesc;
+    desc.Usage          = pDesc->Usage;
+    desc.BindFlags      = pDesc->BindFlags;
+    desc.CPUAccessFlags = pDesc->CPUAccessFlags;
+    desc.MiscFlags      = pDesc->MiscFlags;
+    
+    if (FAILED(D3D11CommonTexture::NormalizeTextureProperties(&desc)))
+      return E_INVALIDARG;
+    
     if (ppTexture2D == nullptr)
       return S_FALSE;
     
     try {
-      const Com<D3D11Texture2D> texture
-        = new D3D11Texture2D(this, pDesc);
-      
-      this->InitTexture(texture->GetTextureInfo()->image, pInitialData);
+      const Com<D3D11Texture2D> texture = new D3D11Texture2D(this, &desc);
+      this->InitTexture(texture->GetCommonTexture()->GetImage(), pInitialData);
       *ppTexture2D = texture.ref();
       return S_OK;
     } catch (const DxvkError& e) {
@@ -138,14 +225,30 @@ namespace dxvk {
     const D3D11_TEXTURE3D_DESC*   pDesc,
     const D3D11_SUBRESOURCE_DATA* pInitialData,
           ID3D11Texture3D**       ppTexture3D) {
+    InitReturnPtr(ppTexture3D);
+    
+    D3D11_COMMON_TEXTURE_DESC desc;
+    desc.Width          = pDesc->Width;
+    desc.Height         = pDesc->Height;
+    desc.Depth          = pDesc->Depth;
+    desc.MipLevels      = pDesc->MipLevels;
+    desc.ArraySize      = 1;
+    desc.Format         = pDesc->Format;
+    desc.SampleDesc     = DXGI_SAMPLE_DESC { 1, 0 };
+    desc.Usage          = pDesc->Usage;
+    desc.BindFlags      = pDesc->BindFlags;
+    desc.CPUAccessFlags = pDesc->CPUAccessFlags;
+    desc.MiscFlags      = pDesc->MiscFlags;
+    
+    if (FAILED(D3D11CommonTexture::NormalizeTextureProperties(&desc)))
+      return E_INVALIDARG;
+    
     if (ppTexture3D == nullptr)
       return S_FALSE;
       
     try {
-      const Com<D3D11Texture3D> texture
-        = new D3D11Texture3D(this, pDesc);
-      
-      this->InitTexture(texture->GetTextureInfo()->image, pInitialData);
+      const Com<D3D11Texture3D> texture = new D3D11Texture3D(this, &desc);
+      this->InitTexture(texture->GetCommonTexture()->GetImage(), pInitialData);
       *ppTexture3D = texture.ref();
       return S_OK;
     } catch (const DxvkError& e) {
@@ -159,6 +262,8 @@ namespace dxvk {
           ID3D11Resource*                   pResource,
     const D3D11_SHADER_RESOURCE_VIEW_DESC*  pDesc,
           ID3D11ShaderResourceView**        ppSRView) {
+    InitReturnPtr(ppSRView);
+    
     D3D11_RESOURCE_DIMENSION resourceDim = D3D11_RESOURCE_DIMENSION_UNKNOWN;
     pResource->GetType(&resourceDim);
     
@@ -167,12 +272,12 @@ namespace dxvk {
     D3D11_SHADER_RESOURCE_VIEW_DESC desc;
     
     if (pDesc == nullptr) {
-      if (FAILED(GetShaderResourceViewDescFromResource(pResource, &desc)))
+      if (FAILED(D3D11ShaderResourceView::GetDescFromResource(pResource, &desc)))
         return E_INVALIDARG;
     } else {
       desc = *pDesc;
       
-      if (FAILED(SetShaderResourceViewDescUnspecValues(pResource, &desc)))
+      if (FAILED(D3D11ShaderResourceView::NormalizeDesc(pResource, &desc)))
         return E_INVALIDARG;
     }
     
@@ -244,11 +349,9 @@ namespace dxvk {
         return E_FAIL;
       }
     } else {
-      // Retrieve info about the image
-      const D3D11TextureInfo* textureInfo
-        = GetCommonTextureInfo(pResource);
+      const D3D11CommonTexture* textureInfo = GetCommonTexture(pResource);
       
-      if ((textureInfo->bindFlags & D3D11_BIND_SHADER_RESOURCE) == 0) {
+      if ((textureInfo->Desc()->BindFlags & D3D11_BIND_SHADER_RESOURCE) == 0) {
         Logger::warn("D3D11: Trying to create SRV for texture without D3D11_BIND_SHADER_RESOURCE");
         return E_INVALIDARG;
       }
@@ -257,7 +360,7 @@ namespace dxvk {
       // on the view dimension field in the view description,
       // not on the resource type.
       const DxgiFormatInfo formatInfo = m_dxgiAdapter
-        ->LookupFormat(desc.Format, textureInfo->formatMode);
+        ->LookupFormat(desc.Format, textureInfo->GetFormatMode());
       
       DxvkImageViewCreateInfo viewInfo;
       viewInfo.format  = formatInfo.format;
@@ -351,7 +454,8 @@ namespace dxvk {
         *ppSRView = ref(new D3D11ShaderResourceView(
           this, pResource, desc,
           m_dxvkDevice->createImageView(
-            textureInfo->image, viewInfo)));
+            textureInfo->GetImage(),
+            viewInfo)));
         return S_OK;
       } catch (const DxvkError& e) {
         Logger::err(e.message());
@@ -365,6 +469,8 @@ namespace dxvk {
           ID3D11Resource*                   pResource,
     const D3D11_UNORDERED_ACCESS_VIEW_DESC* pDesc,
           ID3D11UnorderedAccessView**       ppUAView) {
+    InitReturnPtr(ppUAView);
+    
     D3D11_RESOURCE_DIMENSION resourceDim = D3D11_RESOURCE_DIMENSION_UNKNOWN;
     pResource->GetType(&resourceDim);
     
@@ -373,12 +479,12 @@ namespace dxvk {
     D3D11_UNORDERED_ACCESS_VIEW_DESC desc;
     
     if (pDesc == nullptr) {
-      if (FAILED(GetUnorderedAccessViewDescFromResource(pResource, &desc)))
+      if (FAILED(D3D11UnorderedAccessView::GetDescFromResource(pResource, &desc)))
         return E_INVALIDARG;
     } else {
       desc = *pDesc;
       
-      if (FAILED(SetUnorderedAccessViewDescUnspecValues(pResource, &desc)))
+      if (FAILED(D3D11UnorderedAccessView::NormalizeDesc(pResource, &desc)))
         return E_INVALIDARG;
     }
     
@@ -440,11 +546,9 @@ namespace dxvk {
         return E_FAIL;
       }
     } else {
-      // Retrieve info about the image
-      const D3D11TextureInfo* textureInfo
-        = GetCommonTextureInfo(pResource);
+      const D3D11CommonTexture* textureInfo = GetCommonTexture(pResource);
       
-      if ((textureInfo->bindFlags & D3D11_BIND_UNORDERED_ACCESS) == 0) {
+      if ((textureInfo->Desc()->BindFlags & D3D11_BIND_UNORDERED_ACCESS) == 0) {
         Logger::warn("D3D11: Trying to create UAV for texture without D3D11_BIND_UNORDERED_ACCESS");
         return E_INVALIDARG;
       }
@@ -453,7 +557,7 @@ namespace dxvk {
       // on the view dimension field in the view description,
       // not on the resource type.
       const DxgiFormatInfo formatInfo = m_dxgiAdapter
-        ->LookupFormat(desc.Format, textureInfo->formatMode);
+        ->LookupFormat(desc.Format, textureInfo->GetFormatMode());
       
       DxvkImageViewCreateInfo viewInfo;
       viewInfo.format  = formatInfo.format;
@@ -517,7 +621,8 @@ namespace dxvk {
         *ppUAView = ref(new D3D11UnorderedAccessView(
           this, pResource, desc,
           m_dxvkDevice->createImageView(
-            textureInfo->image, viewInfo),
+            textureInfo->GetImage(),
+            viewInfo),
           DxvkBufferSlice()));
         return S_OK;
       } catch (const DxvkError& e) {
@@ -532,29 +637,35 @@ namespace dxvk {
           ID3D11Resource*                   pResource,
     const D3D11_RENDER_TARGET_VIEW_DESC*    pDesc,
           ID3D11RenderTargetView**          ppRTView) {
-    // Only 2D textures and 2D texture arrays are allowed
+    InitReturnPtr(ppRTView);
+    
+    // DXVK only supports render target views for image resources
     D3D11_RESOURCE_DIMENSION resourceDim = D3D11_RESOURCE_DIMENSION_UNKNOWN;
     pResource->GetType(&resourceDim);
+    
+    if (resourceDim == D3D11_RESOURCE_DIMENSION_BUFFER) {
+      Logger::warn("D3D11: Cannot create render target view for a buffer");
+      return S_OK; // It is required to run Battlefield 3 and Battlefield 4.
+    }
     
     // The view description is optional. If not defined, it
     // will use the resource's format and all array layers.
     D3D11_RENDER_TARGET_VIEW_DESC desc;
     
     if (pDesc == nullptr) {
-      if (FAILED(GetRenderTargetViewDescFromResource(pResource, &desc)))
+      if (FAILED(D3D11RenderTargetView::GetDescFromResource(pResource, &desc)))
         return E_INVALIDARG;
     } else {
       desc = *pDesc;
       
-      if (FAILED(SetRenderTargetViewDescUnspecValues(pResource, &desc)))
+      if (FAILED(D3D11RenderTargetView::NormalizeDesc(pResource, &desc)))
         return E_INVALIDARG;
     }
     
     // Retrieve the image that we are going to create the view for
-    const D3D11TextureInfo* textureInfo
-      = GetCommonTextureInfo(pResource);
+    const D3D11CommonTexture* textureInfo = GetCommonTexture(pResource);
     
-    if ((textureInfo->bindFlags & D3D11_BIND_RENDER_TARGET) == 0) {
+    if ((textureInfo->Desc()->BindFlags & D3D11_BIND_RENDER_TARGET) == 0) {
       Logger::warn("D3D11: Trying to create RTV for texture without D3D11_BIND_RENDER_TARGET");
       return E_INVALIDARG;
     }
@@ -636,7 +747,8 @@ namespace dxvk {
       *ppRTView = ref(new D3D11RenderTargetView(
         this, pResource, desc,
         m_dxvkDevice->createImageView(
-          textureInfo->image, viewInfo)));
+          textureInfo->GetImage(),
+          viewInfo)));
       return S_OK;
     } catch (const DxvkError& e) {
       Logger::err(e.message());
@@ -649,7 +761,8 @@ namespace dxvk {
           ID3D11Resource*                   pResource,
     const D3D11_DEPTH_STENCIL_VIEW_DESC*    pDesc,
           ID3D11DepthStencilView**          ppDepthStencilView) {
-    // Only 2D textures and 2D texture arrays are allowed
+    InitReturnPtr(ppDepthStencilView);
+    
     D3D11_RESOURCE_DIMENSION resourceDim = D3D11_RESOURCE_DIMENSION_UNKNOWN;
     pResource->GetType(&resourceDim);
     
@@ -658,20 +771,19 @@ namespace dxvk {
     D3D11_DEPTH_STENCIL_VIEW_DESC desc;
     
     if (pDesc == nullptr) {
-      if (FAILED(GetDepthStencilViewDescFromResource(pResource, &desc)))
+      if (FAILED(D3D11DepthStencilView::GetDescFromResource(pResource, &desc)))
         return E_INVALIDARG;
     } else {
       desc = *pDesc;
       
-      if (FAILED(SetDepthStencilViewDescUnspecValues(pResource, &desc)))
+      if (FAILED(D3D11DepthStencilView::NormalizeDesc(pResource, &desc)))
         return E_INVALIDARG;
     }
     
     // Retrieve the image that we are going to create the view for
-    const D3D11TextureInfo* textureInfo
-      = GetCommonTextureInfo(pResource);
+    const D3D11CommonTexture* textureInfo = GetCommonTexture(pResource);
     
-    if ((textureInfo->bindFlags & D3D11_BIND_DEPTH_STENCIL) == 0) {
+    if ((textureInfo->Desc()->BindFlags & D3D11_BIND_DEPTH_STENCIL) == 0) {
       Logger::warn("D3D11: Trying to create DSV for texture without D3D11_BIND_DEPTH_STENCIL");
       return E_INVALIDARG;
     }
@@ -745,7 +857,8 @@ namespace dxvk {
       *ppDepthStencilView = ref(new D3D11DepthStencilView(
         this, pResource, desc,
         m_dxvkDevice->createImageView(
-          textureInfo->image, viewInfo)));
+          textureInfo->GetImage(),
+          viewInfo)));
       return S_OK;
     } catch (const DxvkError& e) {
       Logger::err(e.message());
@@ -760,6 +873,8 @@ namespace dxvk {
     const void*                       pShaderBytecodeWithInputSignature,
           SIZE_T                      BytecodeLength,
           ID3D11InputLayout**         ppInputLayout) {
+    InitReturnPtr(ppInputLayout);
+    
     try {
       DxbcReader dxbcReader(reinterpret_cast<const char*>(
         pShaderBytecodeWithInputSignature), BytecodeLength);
@@ -888,10 +1003,12 @@ namespace dxvk {
           SIZE_T                      BytecodeLength,
           ID3D11ClassLinkage*         pClassLinkage,
           ID3D11VertexShader**        ppVertexShader) {
+    InitReturnPtr(ppVertexShader);
     D3D11ShaderModule module;
     
     if (FAILED(this->CreateShaderModule(&module,
-        pShaderBytecode, BytecodeLength, pClassLinkage)))
+        pShaderBytecode, BytecodeLength, pClassLinkage,
+        DxbcProgramType::VertexShader)))
       return E_INVALIDARG;
     
     if (ppVertexShader == nullptr)
@@ -908,10 +1025,12 @@ namespace dxvk {
           SIZE_T                      BytecodeLength,
           ID3D11ClassLinkage*         pClassLinkage,
           ID3D11GeometryShader**      ppGeometryShader) {
+    InitReturnPtr(ppGeometryShader);
     D3D11ShaderModule module;
     
     if (FAILED(this->CreateShaderModule(&module,
-        pShaderBytecode, BytecodeLength, pClassLinkage)))
+        pShaderBytecode, BytecodeLength, pClassLinkage,
+        DxbcProgramType::GeometryShader)))
       return E_INVALIDARG;
     
     if (ppGeometryShader == nullptr)
@@ -933,6 +1052,7 @@ namespace dxvk {
           UINT                        RasterizedStream,
           ID3D11ClassLinkage*         pClassLinkage,
           ID3D11GeometryShader**      ppGeometryShader) {
+    InitReturnPtr(ppGeometryShader);
     Logger::err("D3D11Device::CreateGeometryShaderWithStreamOutput: Not implemented");
     return E_NOTIMPL;
   }
@@ -943,10 +1063,12 @@ namespace dxvk {
           SIZE_T                      BytecodeLength,
           ID3D11ClassLinkage*         pClassLinkage,
           ID3D11PixelShader**         ppPixelShader) {
+    InitReturnPtr(ppPixelShader);
     D3D11ShaderModule module;
     
     if (FAILED(this->CreateShaderModule(&module,
-        pShaderBytecode, BytecodeLength, pClassLinkage)))
+        pShaderBytecode, BytecodeLength, pClassLinkage,
+        DxbcProgramType::PixelShader)))
       return E_INVALIDARG;
     
     if (ppPixelShader == nullptr)
@@ -963,12 +1085,13 @@ namespace dxvk {
           SIZE_T                      BytecodeLength,
           ID3D11ClassLinkage*         pClassLinkage,
           ID3D11HullShader**          ppHullShader) {
+    InitReturnPtr(ppHullShader);
     D3D11ShaderModule module;
     
-    Logger::warn("D3D11: CreateHullShader: Tessellation shaders not yet supported");
-//     if (FAILED(this->CreateShaderModule(&module,
-//         pShaderBytecode, BytecodeLength, pClassLinkage)))
-//       return E_INVALIDARG;
+    if (FAILED(this->CreateShaderModule(&module,
+        pShaderBytecode, BytecodeLength, pClassLinkage,
+        DxbcProgramType::HullShader)))
+      return E_INVALIDARG;
     
     if (ppHullShader == nullptr)
       return S_FALSE;
@@ -984,12 +1107,13 @@ namespace dxvk {
           SIZE_T                      BytecodeLength,
           ID3D11ClassLinkage*         pClassLinkage,
           ID3D11DomainShader**        ppDomainShader) {
+    InitReturnPtr(ppDomainShader);
     D3D11ShaderModule module;
     
-    Logger::warn("D3D11: CreateDomainShader: Tessellation shaders not yet supported");
-//     if (FAILED(this->CreateShaderModule(&module,
-//         pShaderBytecode, BytecodeLength, pClassLinkage)))
-//       return E_INVALIDARG;
+    if (FAILED(this->CreateShaderModule(&module,
+        pShaderBytecode, BytecodeLength, pClassLinkage,
+        DxbcProgramType::DomainShader)))
+      return E_INVALIDARG;
     
     if (ppDomainShader == nullptr)
       return S_FALSE;
@@ -1005,10 +1129,12 @@ namespace dxvk {
           SIZE_T                      BytecodeLength,
           ID3D11ClassLinkage*         pClassLinkage,
           ID3D11ComputeShader**       ppComputeShader) {
+    InitReturnPtr(ppComputeShader);
     D3D11ShaderModule module;
     
     if (FAILED(this->CreateShaderModule(&module,
-        pShaderBytecode, BytecodeLength, pClassLinkage)))
+        pShaderBytecode, BytecodeLength, pClassLinkage,
+        DxbcProgramType::ComputeShader)))
       return E_INVALIDARG;
     
     if (ppComputeShader == nullptr)
@@ -1029,28 +1155,33 @@ namespace dxvk {
   HRESULT STDMETHODCALLTYPE D3D11Device::CreateBlendState(
     const D3D11_BLEND_DESC*           pBlendStateDesc,
           ID3D11BlendState**          ppBlendState) {
-    D3D11_BLEND_DESC desc;
+    InitReturnPtr(ppBlendState);
     
-    if (pBlendStateDesc != nullptr) {
-      desc = *pBlendStateDesc;
-    } else {
-      desc.AlphaToCoverageEnable  = FALSE;
-      desc.IndependentBlendEnable = FALSE;
-      
-      // 1-7 must be ignored if IndependentBlendEnable is disabled so
-      // technically this is not needed, but since this structure is
-      // going to be copied around we'll initialize it nonetheless
-      for (uint32_t i = 0; i < 8; i++) {
-        desc.RenderTarget[i].BlendEnable           = FALSE;
-        desc.RenderTarget[i].SrcBlend              = D3D11_BLEND_ONE;
-        desc.RenderTarget[i].DestBlend             = D3D11_BLEND_ZERO;
-        desc.RenderTarget[i].BlendOp               = D3D11_BLEND_OP_ADD;
-        desc.RenderTarget[i].SrcBlendAlpha         = D3D11_BLEND_ONE;
-        desc.RenderTarget[i].DestBlendAlpha        = D3D11_BLEND_ZERO;
-        desc.RenderTarget[i].BlendOpAlpha          = D3D11_BLEND_OP_ADD;
-        desc.RenderTarget[i].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
-      }
-    }
+    D3D11_BLEND_DESC1 desc = pBlendStateDesc != nullptr
+      ? D3D11BlendState::PromoteDesc(pBlendStateDesc)
+      : D3D11BlendState::DefaultDesc();
+    
+    if (FAILED(D3D11BlendState::NormalizeDesc(&desc)))
+      return E_INVALIDARG;
+    
+    if (ppBlendState != nullptr) {
+      *ppBlendState = m_bsStateObjects.Create(this, desc);
+      return S_OK;
+    } return S_FALSE;
+  }
+  
+  
+  HRESULT STDMETHODCALLTYPE D3D11Device::CreateBlendState1(
+    const D3D11_BLEND_DESC1*          pBlendStateDesc, 
+          ID3D11BlendState1**         ppBlendState) {
+    InitReturnPtr(ppBlendState);
+    
+    D3D11_BLEND_DESC1 desc = pBlendStateDesc != nullptr
+      ? *pBlendStateDesc
+      : D3D11BlendState::DefaultDesc();
+    
+    if (FAILED(D3D11BlendState::NormalizeDesc(&desc)))
+      return E_INVALIDARG;
     
     if (ppBlendState != nullptr) {
       *ppBlendState = m_bsStateObjects.Create(this, desc);
@@ -1062,26 +1193,14 @@ namespace dxvk {
   HRESULT STDMETHODCALLTYPE D3D11Device::CreateDepthStencilState(
     const D3D11_DEPTH_STENCIL_DESC*   pDepthStencilDesc,
           ID3D11DepthStencilState**   ppDepthStencilState) {
-    D3D11_DEPTH_STENCIL_DESC desc;
+    InitReturnPtr(ppDepthStencilState);
     
-    if (pDepthStencilDesc != nullptr) {
-      desc = *pDepthStencilDesc;
-    } else {
-      D3D11_DEPTH_STENCILOP_DESC stencilOp;
-      stencilOp.StencilFunc        = D3D11_COMPARISON_ALWAYS;
-      stencilOp.StencilDepthFailOp = D3D11_STENCIL_OP_KEEP;
-      stencilOp.StencilPassOp      = D3D11_STENCIL_OP_KEEP;
-      stencilOp.StencilFailOp      = D3D11_STENCIL_OP_KEEP;
-      
-      desc.DepthEnable      = TRUE;
-      desc.DepthWriteMask   = D3D11_DEPTH_WRITE_MASK_ALL;
-      desc.DepthFunc        = D3D11_COMPARISON_LESS;
-      desc.StencilEnable    = FALSE;
-      desc.StencilReadMask  = D3D11_DEFAULT_STENCIL_READ_MASK;
-      desc.StencilWriteMask = D3D11_DEFAULT_STENCIL_WRITE_MASK;
-      desc.FrontFace        = stencilOp;
-      desc.BackFace         = stencilOp;
-    }
+    D3D11_DEPTH_STENCIL_DESC desc = pDepthStencilDesc != nullptr
+      ? *pDepthStencilDesc
+      : D3D11DepthStencilState::DefaultDesc();
+    
+    if (FAILED(D3D11DepthStencilState::NormalizeDesc(&desc)))
+      return E_INVALIDARG;
     
     if (ppDepthStencilState != nullptr) {
       *ppDepthStencilState = m_dsStateObjects.Create(this, desc);
@@ -1093,22 +1212,33 @@ namespace dxvk {
   HRESULT STDMETHODCALLTYPE D3D11Device::CreateRasterizerState(
     const D3D11_RASTERIZER_DESC*      pRasterizerDesc,
           ID3D11RasterizerState**     ppRasterizerState) {
-    D3D11_RASTERIZER_DESC desc;
+    InitReturnPtr(ppRasterizerState);
     
-    if (pRasterizerDesc != nullptr) {
-      desc = *pRasterizerDesc;
-    } else {
-      desc.FillMode = D3D11_FILL_SOLID;
-      desc.CullMode = D3D11_CULL_BACK;
-      desc.FrontCounterClockwise = FALSE;
-      desc.DepthBias = 0;
-      desc.SlopeScaledDepthBias = 0.0f;
-      desc.DepthBiasClamp = 0.0f;
-      desc.DepthClipEnable = TRUE;
-      desc.ScissorEnable = FALSE;
-      desc.MultisampleEnable = FALSE;
-      desc.AntialiasedLineEnable = FALSE;
-    }
+    D3D11_RASTERIZER_DESC1 desc = pRasterizerDesc != nullptr
+      ? D3D11RasterizerState::PromoteDesc(pRasterizerDesc)
+      : D3D11RasterizerState::DefaultDesc();
+    
+    if (FAILED(D3D11RasterizerState::NormalizeDesc(&desc)))
+      return E_INVALIDARG;
+    
+    if (ppRasterizerState != nullptr) {
+      *ppRasterizerState = m_rsStateObjects.Create(this, desc);
+      return S_OK;
+    } return S_FALSE;
+  }
+  
+  
+  HRESULT D3D11Device::CreateRasterizerState1(
+    const D3D11_RASTERIZER_DESC1*     pRasterizerDesc, 
+          ID3D11RasterizerState1**    ppRasterizerState) {
+    InitReturnPtr(ppRasterizerState);
+    
+    D3D11_RASTERIZER_DESC1 desc = pRasterizerDesc != nullptr
+      ? *pRasterizerDesc
+      : D3D11RasterizerState::DefaultDesc();
+    
+    if (FAILED(D3D11RasterizerState::NormalizeDesc(&desc)))
+      return E_INVALIDARG;
     
     if (ppRasterizerState != nullptr) {
       *ppRasterizerState = m_rsStateObjects.Create(this, desc);
@@ -1120,50 +1250,17 @@ namespace dxvk {
   HRESULT STDMETHODCALLTYPE D3D11Device::CreateSamplerState(
     const D3D11_SAMPLER_DESC*         pSamplerDesc,
           ID3D11SamplerState**        ppSamplerState) {
-    DxvkSamplerCreateInfo info;
+    InitReturnPtr(ppSamplerState);
+    D3D11_SAMPLER_DESC desc = *pSamplerDesc;
     
-    // While D3D11_FILTER is technically an enum, its value bits
-    // can be used to decode the filter properties more efficiently.
-    const uint32_t filterBits = static_cast<uint32_t>(pSamplerDesc->Filter);
-    
-    info.magFilter      = (filterBits & 0x04) ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
-    info.minFilter      = (filterBits & 0x10) ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
-    info.mipmapMode     = (filterBits & 0x01) ? VK_SAMPLER_MIPMAP_MODE_LINEAR : VK_SAMPLER_MIPMAP_MODE_NEAREST;
-    info.useAnisotropy  = (filterBits & 0x40) ? VK_TRUE : VK_FALSE;
-    info.compareToDepth = (filterBits & 0x80) ? VK_TRUE : VK_FALSE;
-    
-    // Check for any unknown flags
-    if (filterBits & 0xFFFFFF2A) {
-      Logger::err(str::format("D3D11: Unsupported filter bits: ", filterBits));
+    if (FAILED(D3D11SamplerState::NormalizeDesc(&desc)))
       return E_INVALIDARG;
-    }
     
-    // Set up the remaining properties, which are
-    // stored directly in the sampler description
-    info.mipmapLodBias = pSamplerDesc->MipLODBias;
-    info.mipmapLodMin  = pSamplerDesc->MinLOD;
-    info.mipmapLodMax  = pSamplerDesc->MaxLOD;
-    info.maxAnisotropy = pSamplerDesc->MaxAnisotropy;
-    info.addressModeU  = DecodeAddressMode(pSamplerDesc->AddressU);
-    info.addressModeV  = DecodeAddressMode(pSamplerDesc->AddressV);
-    info.addressModeW  = DecodeAddressMode(pSamplerDesc->AddressW);
-    info.compareOp     = DecodeCompareOp(pSamplerDesc->ComparisonFunc);
-    info.borderColor   = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
-    info.usePixelCoord = VK_FALSE;  // Not supported in D3D11
-    
-    // Try to find a matching border color if clamp to border is enabled
-    if (info.addressModeU == VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER
-     || info.addressModeV == VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER
-     || info.addressModeW == VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER)
-      info.borderColor = DecodeBorderColor(pSamplerDesc->BorderColor);
-    
-    // Create sampler object if the application requests it
     if (ppSamplerState == nullptr)
       return S_FALSE;
     
     try {
-      *ppSamplerState = ref(new D3D11SamplerState(this,
-        *pSamplerDesc, m_dxvkDevice->createSampler(info)));
+      *ppSamplerState = m_samplerObjects.Create(this, desc);
       return S_OK;
     } catch (const DxvkError& e) {
       Logger::err(e.message());
@@ -1175,6 +1272,8 @@ namespace dxvk {
   HRESULT STDMETHODCALLTYPE D3D11Device::CreateQuery(
     const D3D11_QUERY_DESC*           pQueryDesc,
           ID3D11Query**               ppQuery) {
+    InitReturnPtr(ppQuery);
+    
     if (pQueryDesc->Query != D3D11_QUERY_EVENT
      && pQueryDesc->Query != D3D11_QUERY_OCCLUSION
      && pQueryDesc->Query != D3D11_QUERY_TIMESTAMP
@@ -1201,6 +1300,8 @@ namespace dxvk {
   HRESULT STDMETHODCALLTYPE D3D11Device::CreatePredicate(
     const D3D11_QUERY_DESC*           pPredicateDesc,
           ID3D11Predicate**           ppPredicate) {
+    InitReturnPtr(ppPredicate);
+    
     if (pPredicateDesc->Query != D3D11_QUERY_OCCLUSION_PREDICATE)
       return E_INVALIDARG;
     
@@ -1220,6 +1321,8 @@ namespace dxvk {
   HRESULT STDMETHODCALLTYPE D3D11Device::CreateCounter(
     const D3D11_COUNTER_DESC*         pCounterDesc,
           ID3D11Counter**             ppCounter) {
+    InitReturnPtr(ppCounter);
+    
     Logger::err("D3D11Device::CreateCounter: Not implemented");
     return E_NOTIMPL;
   }
@@ -1232,20 +1335,64 @@ namespace dxvk {
     return S_OK;
   }
   
+  HRESULT STDMETHODCALLTYPE D3D11Device::CreateDeferredContext1(
+          UINT                        ContextFlags, 
+          ID3D11DeviceContext1**      ppDeferredContext) {
+    *ppDeferredContext = ref(new D3D11DeferredContext(this, m_dxvkDevice, ContextFlags));
+    return S_OK;
+  }
+  
+  HRESULT STDMETHODCALLTYPE D3D11Device::CreateDeviceContextState(
+          UINT                        Flags, 
+    const D3D_FEATURE_LEVEL*          pFeatureLevels, 
+          UINT                        FeatureLevels, 
+          UINT                        SDKVersion, 
+          REFIID                      EmulatedInterface, 
+          D3D_FEATURE_LEVEL*          pChosenFeatureLevel, 
+          ID3DDeviceContextState**    ppContextState) {
+    InitReturnPtr(ppContextState);
+    
+    Logger::err("D3D11Device::CreateDeviceContextState: Not implemented");
+    return E_NOTIMPL;
+  }
   
   HRESULT STDMETHODCALLTYPE D3D11Device::OpenSharedResource(
           HANDLE      hResource,
           REFIID      ReturnedInterface,
           void**      ppResource) {
+    InitReturnPtr(ppResource);
+    
     Logger::err("D3D11Device::OpenSharedResource: Not implemented");
     return E_NOTIMPL;
   }
   
   
+  HRESULT STDMETHODCALLTYPE D3D11Device::OpenSharedResource1(
+          HANDLE      hResource,
+          REFIID      ReturnedInterface,
+          void**      ppResource) {
+    InitReturnPtr(ppResource);
+    
+    Logger::err("D3D11Device::OpenSharedResource1: Not implemented");
+    return E_NOTIMPL;
+  }
+
+  
+  HRESULT STDMETHODCALLTYPE D3D11Device::OpenSharedResourceByName(
+          LPCWSTR     lpName, 
+          DWORD       dwDesiredAccess, 
+          REFIID      returnedInterface, 
+          void**      ppResource) {
+    InitReturnPtr(ppResource);
+    
+    Logger::err("D3D11Device::OpenSharedResourceByName: Not implemented");
+    return E_NOTIMPL;
+  }
+  
   HRESULT STDMETHODCALLTYPE D3D11Device::CheckFormatSupport(
           DXGI_FORMAT Format,
           UINT*       pFormatSupport) {
-    return GetFormatSupportFlags(Format, pFormatSupport);
+    return GetFormatSupportFlags(Format, pFormatSupport, nullptr);
   }
   
   
@@ -1271,7 +1418,7 @@ namespace dxvk {
     VkSampleCountFlagBits sampleCountFlag = VK_SAMPLE_COUNT_1_BIT;
     
     if (FAILED(GetSampleCount(SampleCount, &sampleCountFlag)))
-      return S_OK;
+      return E_INVALIDARG;
     
     // Check if the device supports the given combination of format
     // and sample count. D3D exposes the opaque concept of quality
@@ -1317,9 +1464,12 @@ namespace dxvk {
         if (FeatureSupportDataSize != sizeof(D3D11_FEATURE_DATA_THREADING))
           return E_INVALIDARG;
         
+        // We report native support for command lists here so that we do not actually
+        // have to re-implement the UpdateSubresource bug from the D3D11 runtime, see
+        // https://msdn.microsoft.com/en-us/library/windows/desktop/ff476486(v=vs.85).aspx)
         auto info = static_cast<D3D11_FEATURE_DATA_THREADING*>(pFeatureSupportData);
         info->DriverConcurrentCreates = TRUE;
-        info->DriverCommandLists      = FALSE;
+        info->DriverCommandLists      = TRUE;
       } return S_OK;
       
       case D3D11_FEATURE_DOUBLES: {
@@ -1335,7 +1485,15 @@ namespace dxvk {
           return E_INVALIDARG;
         
         auto info = static_cast<D3D11_FEATURE_DATA_FORMAT_SUPPORT*>(pFeatureSupportData);
-        return GetFormatSupportFlags(info->InFormat, &info->OutFormatSupport);
+        return GetFormatSupportFlags(info->InFormat, &info->OutFormatSupport, nullptr);
+      } return S_OK;
+      
+      case D3D11_FEATURE_FORMAT_SUPPORT2: {
+        if (FeatureSupportDataSize != sizeof(D3D11_FEATURE_DATA_FORMAT_SUPPORT2))
+          return E_INVALIDARG;
+        
+        auto info = static_cast<D3D11_FEATURE_DATA_FORMAT_SUPPORT2*>(pFeatureSupportData);
+        return GetFormatSupportFlags(info->InFormat, nullptr, &info->OutFormatSupport2);
       } return S_OK;
       
       case D3D11_FEATURE_D3D10_X_HARDWARE_OPTIONS: {
@@ -1346,30 +1504,82 @@ namespace dxvk {
         info->ComputeShaders_Plus_RawAndStructuredBuffers_Via_Shader_4_x = TRUE;
       } return S_OK;
       
+      case D3D11_FEATURE_D3D11_OPTIONS: {
+        if (FeatureSupportDataSize != sizeof(D3D11_FEATURE_DATA_D3D11_OPTIONS))
+          return E_INVALIDARG;
+        
+        // TODO implement, most of these are required for FL 11.1
+        // https://msdn.microsoft.com/en-us/library/windows/desktop/hh404457(v=vs.85).aspx
+        const VkPhysicalDeviceFeatures& features = m_dxvkDevice->features();
+        
+        auto info = static_cast<D3D11_FEATURE_DATA_D3D11_OPTIONS*>(pFeatureSupportData);
+        info->OutputMergerLogicOp                     = features.logicOp;
+        info->UAVOnlyRenderingForcedSampleCount       = FALSE;
+        info->DiscardAPIsSeenByDriver                 = FALSE;
+        info->FlagsForUpdateAndCopySeenByDriver       = FALSE;
+        info->ClearView                               = FALSE;
+        info->CopyWithOverlap                         = FALSE;
+        info->ConstantBufferPartialUpdate             = TRUE;
+        info->ConstantBufferOffsetting                = TRUE;
+        info->MapNoOverwriteOnDynamicConstantBuffer   = TRUE;
+        info->MapNoOverwriteOnDynamicBufferSRV        = TRUE;
+        info->MultisampleRTVWithForcedSampleCountOne  = FALSE;
+        info->SAD4ShaderInstructions                  = FALSE;
+        info->ExtendedDoublesShaderInstructions       = FALSE;
+        info->ExtendedResourceSharing                 = FALSE;
+      } return S_OK;
+
+      case D3D11_FEATURE_ARCHITECTURE_INFO: {
+        if (FeatureSupportDataSize != sizeof(D3D11_FEATURE_DATA_ARCHITECTURE_INFO))
+          return E_INVALIDARG;
+
+        auto info = static_cast<D3D11_FEATURE_DATA_ARCHITECTURE_INFO*>(pFeatureSupportData);
+        info->TileBasedDeferredRenderer = FALSE;
+      } return S_OK;
+      
+      case D3D11_FEATURE_SHADER_MIN_PRECISION_SUPPORT: {
+        if (FeatureSupportDataSize != sizeof(D3D11_FEATURE_DATA_SHADER_MIN_PRECISION_SUPPORT))
+          return E_INVALIDARG;
+        
+        // Report that we only support full 32-bit operations
+        auto info = static_cast<D3D11_FEATURE_DATA_SHADER_MIN_PRECISION_SUPPORT*>(pFeatureSupportData);
+        info->PixelShaderMinPrecision          = 0;
+        info->AllOtherShaderStagesMinPrecision = 0;
+      } return S_OK;
+      
+      case D3D11_FEATURE_D3D9_SHADOW_SUPPORT: {
+        if (FeatureSupportDataSize != sizeof(D3D11_FEATURE_DATA_D3D9_SHADOW_SUPPORT))
+          return E_INVALIDARG;
+        
+        auto info = static_cast<D3D11_FEATURE_DATA_D3D9_SHADOW_SUPPORT*>(pFeatureSupportData);
+        info->SupportsDepthAsTextureWithLessEqualComparisonFilter = TRUE;
+        return S_OK;
+      } break;
+
       default:
         Logger::err(str::format(
           "D3D11Device: CheckFeatureSupport: Unknown feature: ",
           Feature));
-        return E_INVALIDARG;
+        return E_NOTIMPL;
     }
   }
   
   
   HRESULT STDMETHODCALLTYPE D3D11Device::GetPrivateData(
           REFGUID guid, UINT* pDataSize, void* pData) {
-    return m_dxgiDevice->GetPrivateData(guid, pDataSize, pData);
+    return m_container->GetPrivateData(guid, pDataSize, pData);
   }
   
   
   HRESULT STDMETHODCALLTYPE D3D11Device::SetPrivateData(
           REFGUID guid, UINT DataSize, const void* pData) {
-    return m_dxgiDevice->SetPrivateData(guid, DataSize, pData);
+    return m_container->SetPrivateData(guid, DataSize, pData);
   }
   
   
   HRESULT STDMETHODCALLTYPE D3D11Device::SetPrivateDataInterface(
           REFGUID guid, const IUnknown* pData) {
-    return m_dxgiDevice->SetPrivateDataInterface(guid, pData);
+    return m_container->SetPrivateDataInterface(guid, pData);
   }
   
   
@@ -1394,6 +1604,11 @@ namespace dxvk {
   
   
   void STDMETHODCALLTYPE D3D11Device::GetImmediateContext(ID3D11DeviceContext** ppImmediateContext) {
+    *ppImmediateContext = ref(m_context);
+  }
+
+
+  void STDMETHODCALLTYPE D3D11Device::GetImmediateContext1(ID3D11DeviceContext1 ** ppImmediateContext) {
     *ppImmediateContext = ref(m_context);
   }
   
@@ -1517,7 +1732,6 @@ namespace dxvk {
       enabled.logicOp                               = supported.logicOp;
       enabled.shaderImageGatherExtended             = VK_TRUE;
       enabled.textureCompressionBC                  = VK_TRUE;
-      enabled.vertexPipelineStoresAndAtomics        = VK_TRUE;
     }
     
     if (featureLevel >= D3D_FEATURE_LEVEL_10_1) {
@@ -1529,8 +1743,13 @@ namespace dxvk {
       enabled.shaderFloat64                         = supported.shaderFloat64;
       enabled.shaderInt64                           = supported.shaderInt64;
       enabled.tessellationShader                    = VK_TRUE;
-      enabled.shaderStorageImageReadWithoutFormat   = VK_TRUE;
+      enabled.shaderStorageImageReadWithoutFormat   = supported.shaderStorageImageReadWithoutFormat;
       enabled.shaderStorageImageWriteWithoutFormat  = VK_TRUE;
+    }
+    
+    if (featureLevel >= D3D_FEATURE_LEVEL_11_1) {
+      enabled.logicOp                               = VK_TRUE;
+      enabled.vertexPipelineStoresAndAtomics        = VK_TRUE;
     }
     
     return enabled;
@@ -1541,13 +1760,14 @@ namespace dxvk {
           D3D11ShaderModule*      pShaderModule,
     const void*                   pShaderBytecode,
           size_t                  BytecodeLength,
-          ID3D11ClassLinkage*     pClassLinkage) {
+          ID3D11ClassLinkage*     pClassLinkage,
+          DxbcProgramType         ProgramType) {
     if (pClassLinkage != nullptr)
       Logger::warn("D3D11Device::CreateShaderModule: Class linkage not supported");
     
     try {
-      *pShaderModule = D3D11ShaderModule(
-        &m_dxbcOptions, this, pShaderBytecode, BytecodeLength);
+      *pShaderModule = m_shaderModules.GetShaderModule(
+        &m_dxbcOptions, pShaderBytecode, BytecodeLength, ProgramType);
       return S_OK;
     } catch (const DxvkError& e) {
       Logger::err(e.message());
@@ -1562,7 +1782,7 @@ namespace dxvk {
     const DxvkBufferSlice bufferSlice
       = pBuffer->GetBufferSlice();
     
-    if (pInitialData != nullptr) {
+    if (pInitialData != nullptr && pInitialData->pSysMem != nullptr) {
       LockResourceInitContext();
       
       m_resourceInitContext->updateBuffer(
@@ -1581,7 +1801,7 @@ namespace dxvk {
     const D3D11_SUBRESOURCE_DATA*     pInitialData) {
     const DxvkFormatInfo* formatInfo = imageFormatInfo(image->info().format);
     
-    if (pInitialData != nullptr) {
+    if (pInitialData != nullptr && pInitialData->pSysMem != nullptr) {
       LockResourceInitContext();
       
       // pInitialData is an array that stores an entry for
@@ -1628,8 +1848,6 @@ namespace dxvk {
       subresources.baseArrayLayer = 0;
       subresources.layerCount     = image->info().numLayers;
       
-      const DxvkFormatInfo* formatInfo = imageFormatInfo(image->info().format);
-      
       if (formatInfo->flags.test(DxvkFormatFlag::BlockCompressed)) {
         m_resourceInitContext->initImage(
           image, subresources);
@@ -1652,758 +1870,70 @@ namespace dxvk {
   }
   
   
-  HRESULT D3D11Device::GetShaderResourceViewDescFromResource(
-          ID3D11Resource*                   pResource,
-          D3D11_SHADER_RESOURCE_VIEW_DESC*  pDesc) {
-    D3D11_RESOURCE_DIMENSION resourceDim = D3D11_RESOURCE_DIMENSION_UNKNOWN;
-    pResource->GetType(&resourceDim);
-    
-    switch (resourceDim) {
-      case D3D11_RESOURCE_DIMENSION_BUFFER: {
-        D3D11_BUFFER_DESC bufferDesc;
-        static_cast<D3D11Buffer*>(pResource)->GetDesc(&bufferDesc);
-        
-        if (bufferDesc.MiscFlags == D3D11_RESOURCE_MISC_BUFFER_STRUCTURED) {
-          pDesc->Format              = DXGI_FORMAT_UNKNOWN;
-          pDesc->ViewDimension       = D3D11_SRV_DIMENSION_BUFFER;
-          pDesc->Buffer.FirstElement = 0;
-          pDesc->Buffer.NumElements  = bufferDesc.ByteWidth / bufferDesc.StructureByteStride;
-          return S_OK;
-        }
-      } return E_INVALIDARG;
-      
-      case D3D11_RESOURCE_DIMENSION_TEXTURE1D: {
-        D3D11_TEXTURE1D_DESC resourceDesc;
-        static_cast<D3D11Texture1D*>(pResource)->GetDesc(&resourceDesc);
-        
-        pDesc->Format = resourceDesc.Format;
-        
-        if (resourceDesc.ArraySize == 1) {
-          pDesc->ViewDimension = D3D11_SRV_DIMENSION_TEXTURE1D;
-          pDesc->Texture1D.MostDetailedMip = 0;
-          pDesc->Texture1D.MipLevels       = resourceDesc.MipLevels;
-        } else {
-          pDesc->ViewDimension = D3D11_SRV_DIMENSION_TEXTURE1DARRAY;
-          pDesc->Texture1DArray.MostDetailedMip = 0;
-          pDesc->Texture1DArray.MipLevels       = resourceDesc.MipLevels;
-          pDesc->Texture1DArray.FirstArraySlice = 0;
-          pDesc->Texture1DArray.ArraySize       = resourceDesc.ArraySize;
-        }
-      } return S_OK;
-      
-      case D3D11_RESOURCE_DIMENSION_TEXTURE2D: {
-        D3D11_TEXTURE2D_DESC resourceDesc;
-        static_cast<D3D11Texture2D*>(pResource)->GetDesc(&resourceDesc);
-        
-        pDesc->Format = resourceDesc.Format;
-        
-        if (resourceDesc.SampleDesc.Count == 1) {
-          if (resourceDesc.ArraySize == 1) {
-            pDesc->ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-            pDesc->Texture2D.MostDetailedMip = 0;
-            pDesc->Texture2D.MipLevels       = resourceDesc.MipLevels;
-          } else {
-            pDesc->ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
-            pDesc->Texture2DArray.MostDetailedMip = 0;
-            pDesc->Texture2DArray.MipLevels       = resourceDesc.MipLevels;
-            pDesc->Texture2DArray.FirstArraySlice = 0;
-            pDesc->Texture2DArray.ArraySize       = resourceDesc.ArraySize;
-          }
-        } else {
-          if (resourceDesc.ArraySize == 1) {
-            pDesc->ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DMS;
-          } else {
-            pDesc->ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DMSARRAY;
-            pDesc->Texture2DMSArray.FirstArraySlice = 0;
-            pDesc->Texture2DMSArray.ArraySize       = resourceDesc.ArraySize;
-          }
-        }
-      } return S_OK;
-      
-      case D3D11_RESOURCE_DIMENSION_TEXTURE3D: {
-        D3D11_TEXTURE3D_DESC resourceDesc;
-        static_cast<D3D11Texture3D*>(pResource)->GetDesc(&resourceDesc);
-        
-        pDesc->Format = resourceDesc.Format;
-        pDesc->ViewDimension = D3D11_SRV_DIMENSION_TEXTURE3D;
-        pDesc->Texture3D.MostDetailedMip = 0;
-        pDesc->Texture3D.MipLevels       = resourceDesc.MipLevels;
-      } return S_OK;
-      
-      default:
-        Logger::err(str::format(
-          "D3D11: Unsupported dimension for shader resource view: ",
-          resourceDim));
-        return E_INVALIDARG;
-    }
-  }
-  
-  
-  HRESULT D3D11Device::GetUnorderedAccessViewDescFromResource(
-          ID3D11Resource*                   pResource,
-          D3D11_UNORDERED_ACCESS_VIEW_DESC* pDesc) {
-    D3D11_RESOURCE_DIMENSION resourceDim = D3D11_RESOURCE_DIMENSION_UNKNOWN;
-    pResource->GetType(&resourceDim);
-    
-    switch (resourceDim) {
-      case D3D11_RESOURCE_DIMENSION_BUFFER: {
-        D3D11_BUFFER_DESC bufferDesc;
-        static_cast<D3D11Buffer*>(pResource)->GetDesc(&bufferDesc);
-        
-        if (bufferDesc.MiscFlags == D3D11_RESOURCE_MISC_BUFFER_STRUCTURED) {
-          pDesc->Format              = DXGI_FORMAT_UNKNOWN;
-          pDesc->ViewDimension       = D3D11_UAV_DIMENSION_BUFFER;
-          pDesc->Buffer.FirstElement = 0;
-          pDesc->Buffer.NumElements  = bufferDesc.ByteWidth / bufferDesc.StructureByteStride;
-          return S_OK;
-        }
-      } return E_INVALIDARG;
-      
-      case D3D11_RESOURCE_DIMENSION_TEXTURE1D: {
-        D3D11_TEXTURE1D_DESC resourceDesc;
-        static_cast<D3D11Texture1D*>(pResource)->GetDesc(&resourceDesc);
-        
-        pDesc->Format = resourceDesc.Format;
-        
-        if (resourceDesc.ArraySize == 1) {
-          pDesc->ViewDimension = D3D11_UAV_DIMENSION_TEXTURE1D;
-          pDesc->Texture1D.MipSlice = 0;
-        } else {
-          pDesc->ViewDimension = D3D11_UAV_DIMENSION_TEXTURE1DARRAY;
-          pDesc->Texture1DArray.MipSlice        = 0;
-          pDesc->Texture1DArray.FirstArraySlice = 0;
-          pDesc->Texture1DArray.ArraySize       = resourceDesc.ArraySize;
-        }
-      } return S_OK;
-      
-      case D3D11_RESOURCE_DIMENSION_TEXTURE2D: {
-        D3D11_TEXTURE2D_DESC resourceDesc;
-        static_cast<D3D11Texture2D*>(pResource)->GetDesc(&resourceDesc);
-        
-        pDesc->Format = resourceDesc.Format;
-        
-        if (resourceDesc.ArraySize == 1) {
-          pDesc->ViewDimension = D3D11_UAV_DIMENSION_TEXTURE2D;
-          pDesc->Texture2D.MipSlice = 0;
-        } else {
-          pDesc->ViewDimension = D3D11_UAV_DIMENSION_TEXTURE2DARRAY;
-          pDesc->Texture2DArray.MipSlice        = 0;
-          pDesc->Texture2DArray.FirstArraySlice = 0;
-          pDesc->Texture2DArray.ArraySize       = resourceDesc.ArraySize;
-        }
-      } return S_OK;
-      
-      case D3D11_RESOURCE_DIMENSION_TEXTURE3D: {
-        D3D11_TEXTURE3D_DESC resourceDesc;
-        static_cast<D3D11Texture3D*>(pResource)->GetDesc(&resourceDesc);
-        
-        pDesc->Format        = resourceDesc.Format;
-        pDesc->ViewDimension = D3D11_UAV_DIMENSION_TEXTURE3D;
-        pDesc->Texture3D.MipSlice = 0;
-      } return S_OK;
-      
-      default:
-        Logger::err(str::format(
-          "D3D11: Unsupported dimension for unordered access view: ",
-          resourceDim));
-        return E_INVALIDARG;
-    }
-  }
-  
-  
-  HRESULT D3D11Device::GetRenderTargetViewDescFromResource(
-          ID3D11Resource*                   pResource,
-          D3D11_RENDER_TARGET_VIEW_DESC*    pDesc) {
-    D3D11_RESOURCE_DIMENSION resourceDim = D3D11_RESOURCE_DIMENSION_UNKNOWN;
-    pResource->GetType(&resourceDim);
-    
-    switch (resourceDim) {
-      case D3D11_RESOURCE_DIMENSION_TEXTURE1D: {
-        D3D11_TEXTURE1D_DESC resourceDesc;
-        static_cast<D3D11Texture1D*>(pResource)->GetDesc(&resourceDesc);
-        
-        pDesc->Format = resourceDesc.Format;
-        
-        if (resourceDesc.ArraySize == 1) {
-          pDesc->ViewDimension = D3D11_RTV_DIMENSION_TEXTURE1D;
-          pDesc->Texture1D.MipSlice = 0;
-        } else {
-          pDesc->ViewDimension = D3D11_RTV_DIMENSION_TEXTURE1DARRAY;
-          pDesc->Texture1DArray.MipSlice        = 0;
-          pDesc->Texture1DArray.FirstArraySlice = 0;
-          pDesc->Texture1DArray.ArraySize       = resourceDesc.ArraySize;
-        }
-      } return S_OK;
-      
-      case D3D11_RESOURCE_DIMENSION_TEXTURE2D: {
-        D3D11_TEXTURE2D_DESC resourceDesc;
-        static_cast<D3D11Texture2D*>(pResource)->GetDesc(&resourceDesc);
-        
-        pDesc->Format = resourceDesc.Format;
-        
-        if (resourceDesc.SampleDesc.Count == 1) {
-          if (resourceDesc.ArraySize == 1) {
-            pDesc->ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-            pDesc->Texture2D.MipSlice = 0;
-          } else {
-            pDesc->ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DARRAY;
-            pDesc->Texture2DArray.MipSlice        = 0;
-            pDesc->Texture2DArray.FirstArraySlice = 0;
-            pDesc->Texture2DArray.ArraySize       = resourceDesc.ArraySize;
-          }
-        } else {
-          if (resourceDesc.ArraySize == 1) {
-            pDesc->ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DMS;
-          } else {
-            pDesc->ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DMSARRAY;
-            pDesc->Texture2DMSArray.FirstArraySlice = 0;
-            pDesc->Texture2DMSArray.ArraySize       = resourceDesc.ArraySize;
-          }
-        }
-      } return S_OK;
-        
-      case D3D11_RESOURCE_DIMENSION_TEXTURE3D: {
-        D3D11_TEXTURE3D_DESC resourceDesc;
-        static_cast<D3D11Texture3D*>(pResource)->GetDesc(&resourceDesc);
-        
-        pDesc->Format         = resourceDesc.Format;
-        pDesc->ViewDimension  = D3D11_RTV_DIMENSION_TEXTURE3D;
-        pDesc->Texture3D.MipSlice    = 0;
-        pDesc->Texture3D.FirstWSlice = 0;
-        pDesc->Texture3D.WSize       = resourceDesc.Depth;
-      } return S_OK;
-      
-      default:
-        Logger::err(str::format(
-          "D3D11: Unsupported dimension for render target view: ",
-          resourceDim));
-        return E_INVALIDARG;
-    }
-  }
-  
-  
-  HRESULT D3D11Device::GetDepthStencilViewDescFromResource(
-          ID3D11Resource*                   pResource,
-          D3D11_DEPTH_STENCIL_VIEW_DESC*    pDesc) {
-    D3D11_RESOURCE_DIMENSION resourceDim = D3D11_RESOURCE_DIMENSION_UNKNOWN;
-    pResource->GetType(&resourceDim);
-    
-    switch (resourceDim) {
-      case D3D11_RESOURCE_DIMENSION_TEXTURE1D: {
-        D3D11_TEXTURE1D_DESC resourceDesc;
-        static_cast<D3D11Texture1D*>(pResource)->GetDesc(&resourceDesc);
-        
-        pDesc->Format = resourceDesc.Format;
-        
-        if (resourceDesc.ArraySize == 1) {
-          pDesc->ViewDimension = D3D11_DSV_DIMENSION_TEXTURE1D;
-          pDesc->Texture1D.MipSlice = 0;
-        } else {
-          pDesc->ViewDimension = D3D11_DSV_DIMENSION_TEXTURE1DARRAY;
-          pDesc->Texture1DArray.MipSlice        = 0;
-          pDesc->Texture1DArray.FirstArraySlice = 0;
-          pDesc->Texture1DArray.ArraySize       = resourceDesc.ArraySize;
-        }
-      } return S_OK;
-      
-      case D3D11_RESOURCE_DIMENSION_TEXTURE2D: {
-        D3D11_TEXTURE2D_DESC resourceDesc;
-        static_cast<D3D11Texture2D*>(pResource)->GetDesc(&resourceDesc);
-        
-        pDesc->Format = resourceDesc.Format;
-        
-        if (resourceDesc.SampleDesc.Count == 1) {
-          if (resourceDesc.ArraySize == 1) {
-            pDesc->ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
-            pDesc->Texture2D.MipSlice = 0;
-          } else {
-            pDesc->ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DARRAY;
-            pDesc->Texture2DArray.MipSlice        = 0;
-            pDesc->Texture2DArray.FirstArraySlice = 0;
-            pDesc->Texture2DArray.ArraySize       = resourceDesc.ArraySize;
-          }
-        } else {
-          if (resourceDesc.ArraySize == 1) {
-            pDesc->ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DMS;
-          } else {
-            pDesc->ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DMSARRAY;
-            pDesc->Texture2DMSArray.FirstArraySlice = 0;
-            pDesc->Texture2DMSArray.ArraySize       = resourceDesc.ArraySize;
-          }
-        }
-      } return S_OK;
-        
-      default:
-        Logger::err(str::format(
-          "D3D11: Unsupported dimension for depth stencil view: ",
-          resourceDim));
-        return E_INVALIDARG;
-    }
-  }
-  
-  
-  HRESULT D3D11Device::SetShaderResourceViewDescUnspecValues(
-          ID3D11Resource*                   pResource,
-          D3D11_SHADER_RESOURCE_VIEW_DESC*  pDesc) {
-    D3D11_RESOURCE_DIMENSION resourceDim = D3D11_RESOURCE_DIMENSION_UNKNOWN;
-    pResource->GetType(&resourceDim);
-    
-    DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
-    uint32_t mipLevels = 0;
-    uint32_t numLayers = 0;
-    
-    switch (resourceDim) {
-      case D3D11_RESOURCE_DIMENSION_BUFFER: {
-        if (pDesc->ViewDimension != D3D11_SRV_DIMENSION_BUFFER
-         && pDesc->ViewDimension != D3D11_SRV_DIMENSION_BUFFEREX) {
-          Logger::err("D3D11: Incompatible view dimension for Buffer");
-          return E_INVALIDARG;
-        }
-      } break;
-      
-      case D3D11_RESOURCE_DIMENSION_TEXTURE1D: {
-        D3D11_TEXTURE1D_DESC resourceDesc;
-        static_cast<D3D11Texture1D*>(pResource)->GetDesc(&resourceDesc);
-        
-        if (pDesc->ViewDimension != D3D11_SRV_DIMENSION_TEXTURE1D
-         && pDesc->ViewDimension != D3D11_SRV_DIMENSION_TEXTURE1DARRAY) {
-          Logger::err("D3D11: Incompatible view dimension for Texture1D");
-          return E_INVALIDARG;
-        }
-        
-        format    = resourceDesc.Format;
-        mipLevels = resourceDesc.MipLevels;
-        numLayers = resourceDesc.ArraySize;
-      } break;
-      
-      case D3D11_RESOURCE_DIMENSION_TEXTURE2D: {
-        D3D11_TEXTURE2D_DESC resourceDesc;
-        static_cast<D3D11Texture2D*>(pResource)->GetDesc(&resourceDesc);
-        
-        if (pDesc->ViewDimension != D3D11_SRV_DIMENSION_TEXTURE2D
-         && pDesc->ViewDimension != D3D11_SRV_DIMENSION_TEXTURE2DARRAY
-         && pDesc->ViewDimension != D3D11_SRV_DIMENSION_TEXTURE2DMS
-         && pDesc->ViewDimension != D3D11_SRV_DIMENSION_TEXTURE2DMSARRAY
-         && pDesc->ViewDimension != D3D11_SRV_DIMENSION_TEXTURECUBE
-         && pDesc->ViewDimension != D3D11_SRV_DIMENSION_TEXTURECUBEARRAY) {
-          Logger::err("D3D11: Incompatible view dimension for Texture2D");
-          return E_INVALIDARG;
-        }
-        
-        format    = resourceDesc.Format;
-        mipLevels = resourceDesc.MipLevels;
-        numLayers = resourceDesc.ArraySize;
-      } break;
-      
-      case D3D11_RESOURCE_DIMENSION_TEXTURE3D: {
-        D3D11_TEXTURE3D_DESC resourceDesc;
-        static_cast<D3D11Texture3D*>(pResource)->GetDesc(&resourceDesc);
-        
-        if (pDesc->ViewDimension != D3D11_SRV_DIMENSION_TEXTURE3D) {
-          Logger::err("D3D11: Incompatible view dimension for Texture3D");
-          return E_INVALIDARG;
-        }
-        
-        format    = resourceDesc.Format;
-        mipLevels = resourceDesc.MipLevels;
-        numLayers = 1;
-      } break;
-      
-      default:
-        return E_INVALIDARG;
-    }
-    
-    if (pDesc->Format == DXGI_FORMAT_UNKNOWN)
-      pDesc->Format = format;
-    
-    switch (pDesc->ViewDimension) {
-      case D3D11_SRV_DIMENSION_TEXTURE1D:
-        if (pDesc->Texture1D.MipLevels == D3D11_DXVK_USE_REMAINING_LEVELS)
-          pDesc->Texture1D.MipLevels = mipLevels - pDesc->Texture1D.MostDetailedMip;
-        break;
-      
-      case D3D11_SRV_DIMENSION_TEXTURE1DARRAY:
-        if (pDesc->Texture1DArray.MipLevels == D3D11_DXVK_USE_REMAINING_LEVELS)
-          pDesc->Texture1DArray.MipLevels = mipLevels - pDesc->Texture1DArray.MostDetailedMip;
-        if (pDesc->Texture1DArray.ArraySize == D3D11_DXVK_USE_REMAINING_LAYERS)
-          pDesc->Texture1DArray.ArraySize = numLayers - pDesc->Texture1DArray.FirstArraySlice;
-        break;
-      
-      case D3D11_SRV_DIMENSION_TEXTURE2D:
-        if (pDesc->Texture2D.MipLevels == D3D11_DXVK_USE_REMAINING_LEVELS)
-          pDesc->Texture2D.MipLevels = mipLevels - pDesc->Texture2D.MostDetailedMip;
-        break;
-      
-      case D3D11_SRV_DIMENSION_TEXTURE2DARRAY:
-        if (pDesc->Texture2DArray.MipLevels == D3D11_DXVK_USE_REMAINING_LEVELS)
-          pDesc->Texture2DArray.MipLevels = mipLevels - pDesc->Texture2DArray.MostDetailedMip;
-        if (pDesc->Texture2DArray.ArraySize == D3D11_DXVK_USE_REMAINING_LAYERS)
-          pDesc->Texture2DArray.ArraySize = numLayers - pDesc->Texture2DArray.FirstArraySlice;
-        break;
-      
-      case D3D11_SRV_DIMENSION_TEXTURE2DMSARRAY:
-        if (pDesc->Texture2DMSArray.ArraySize == D3D11_DXVK_USE_REMAINING_LAYERS)
-          pDesc->Texture2DMSArray.ArraySize = numLayers - pDesc->Texture2DMSArray.FirstArraySlice;
-        break;
-      
-      case D3D11_SRV_DIMENSION_TEXTURECUBE:
-        if (pDesc->TextureCube.MipLevels == D3D11_DXVK_USE_REMAINING_LEVELS)
-          pDesc->TextureCube.MipLevels = mipLevels - pDesc->TextureCube.MostDetailedMip;
-        break;
-      
-      case D3D11_SRV_DIMENSION_TEXTURECUBEARRAY:
-        if (pDesc->TextureCubeArray.MipLevels == D3D11_DXVK_USE_REMAINING_LEVELS)
-          pDesc->TextureCubeArray.MipLevels = mipLevels - pDesc->TextureCubeArray.MostDetailedMip;
-        if (pDesc->TextureCubeArray.NumCubes == D3D11_DXVK_USE_REMAINING_LAYERS)
-          pDesc->TextureCubeArray.NumCubes = (mipLevels - pDesc->TextureCubeArray.First2DArrayFace / 6);
-        break;
-      
-      case D3D11_SRV_DIMENSION_TEXTURE3D:
-        if (pDesc->Texture3D.MipLevels == D3D11_DXVK_USE_REMAINING_LEVELS)
-          pDesc->Texture3D.MipLevels = mipLevels - pDesc->Texture3D.MostDetailedMip;
-        break;
-      
-      default:
-        break;
-    }
-    
-    return S_OK;
-  }
-  
-  
-  HRESULT D3D11Device::SetUnorderedAccessViewDescUnspecValues(
-          ID3D11Resource*                   pResource,
-          D3D11_UNORDERED_ACCESS_VIEW_DESC* pDesc) {
-    D3D11_RESOURCE_DIMENSION resourceDim = D3D11_RESOURCE_DIMENSION_UNKNOWN;
-    pResource->GetType(&resourceDim);
-    
-    DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
-    uint32_t numLayers = 0;
-    
-    switch (resourceDim) {
-      case D3D11_RESOURCE_DIMENSION_BUFFER: {
-        if (pDesc->ViewDimension != D3D11_UAV_DIMENSION_BUFFER) {
-          Logger::err("D3D11: Incompatible view dimension for Buffer");
-          return E_INVALIDARG;
-        }
-      } break;
-      
-      case D3D11_RESOURCE_DIMENSION_TEXTURE1D: {
-        D3D11_TEXTURE1D_DESC resourceDesc;
-        static_cast<D3D11Texture1D*>(pResource)->GetDesc(&resourceDesc);
-        
-        if (pDesc->ViewDimension != D3D11_UAV_DIMENSION_TEXTURE1D
-         && pDesc->ViewDimension != D3D11_UAV_DIMENSION_TEXTURE1DARRAY) {
-          Logger::err("D3D11: Incompatible view dimension for Texture1D");
-          return E_INVALIDARG;
-        }
-        
-        format    = resourceDesc.Format;
-        numLayers = resourceDesc.ArraySize;
-      } break;
-      
-      case D3D11_RESOURCE_DIMENSION_TEXTURE2D: {
-        D3D11_TEXTURE2D_DESC resourceDesc;
-        static_cast<D3D11Texture2D*>(pResource)->GetDesc(&resourceDesc);
-        
-        if (pDesc->ViewDimension != D3D11_UAV_DIMENSION_TEXTURE2D
-         && pDesc->ViewDimension != D3D11_UAV_DIMENSION_TEXTURE2DARRAY) {
-          Logger::err("D3D11: Incompatible view dimension for Texture2D");
-          return E_INVALIDARG;
-        }
-        
-        format    = resourceDesc.Format;
-        numLayers = resourceDesc.ArraySize;
-      } break;
-      
-      case D3D11_RESOURCE_DIMENSION_TEXTURE3D: {
-        D3D11_TEXTURE3D_DESC resourceDesc;
-        static_cast<D3D11Texture3D*>(pResource)->GetDesc(&resourceDesc);
-        
-        if (pDesc->ViewDimension != D3D11_UAV_DIMENSION_TEXTURE3D) {
-          Logger::err("D3D11: Incompatible view dimension for Texture3D");
-          return E_INVALIDARG;
-        }
-        
-        format    = resourceDesc.Format;
-        numLayers = resourceDesc.Depth >> pDesc->Texture3D.MipSlice;
-      } break;
-      
-      default:
-        return E_INVALIDARG;
-    }
-    
-    if (pDesc->Format == DXGI_FORMAT_UNKNOWN)
-      pDesc->Format = format;
-    
-    switch (pDesc->ViewDimension) {
-      case D3D11_UAV_DIMENSION_TEXTURE1DARRAY:
-        if (pDesc->Texture1DArray.ArraySize == D3D11_DXVK_USE_REMAINING_LAYERS)
-          pDesc->Texture1DArray.ArraySize = numLayers - pDesc->Texture1DArray.FirstArraySlice;
-        break;
-      
-      case D3D11_UAV_DIMENSION_TEXTURE2DARRAY:
-        if (pDesc->Texture2DArray.ArraySize == D3D11_DXVK_USE_REMAINING_LAYERS)
-          pDesc->Texture2DArray.ArraySize = numLayers - pDesc->Texture2DArray.FirstArraySlice;
-        break;
-      
-      case D3D11_UAV_DIMENSION_TEXTURE3D:
-        if (pDesc->Texture3D.WSize == D3D11_DXVK_USE_REMAINING_LAYERS)
-          pDesc->Texture3D.WSize = numLayers - pDesc->Texture3D.FirstWSlice;
-        break;
-      
-      default:
-        break;
-    }
-    
-    return S_OK;
-  }
-  
-  
-  HRESULT D3D11Device::SetRenderTargetViewDescUnspecValues(
-          ID3D11Resource*                   pResource,
-          D3D11_RENDER_TARGET_VIEW_DESC*    pDesc) {
-    D3D11_RESOURCE_DIMENSION resourceDim = D3D11_RESOURCE_DIMENSION_UNKNOWN;
-    pResource->GetType(&resourceDim);
-    
-    DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
-    uint32_t numLayers = 0;
-    
-    switch (resourceDim) {
-      case D3D11_RESOURCE_DIMENSION_BUFFER: {
-        if (pDesc->ViewDimension != D3D11_RTV_DIMENSION_BUFFER) {
-          Logger::err("D3D11: Incompatible view dimension for Buffer");
-          return E_INVALIDARG;
-        }
-      } break;
-      
-      case D3D11_RESOURCE_DIMENSION_TEXTURE1D: {
-        D3D11_TEXTURE1D_DESC resourceDesc;
-        static_cast<D3D11Texture1D*>(pResource)->GetDesc(&resourceDesc);
-        
-        if (pDesc->ViewDimension != D3D11_RTV_DIMENSION_TEXTURE1D
-         && pDesc->ViewDimension != D3D11_RTV_DIMENSION_TEXTURE1DARRAY) {
-          Logger::err("D3D11: Incompatible view dimension for Texture1D");
-          return E_INVALIDARG;
-        }
-        
-        format    = resourceDesc.Format;
-        numLayers = resourceDesc.ArraySize;
-      } break;
-      
-      case D3D11_RESOURCE_DIMENSION_TEXTURE2D: {
-        D3D11_TEXTURE2D_DESC resourceDesc;
-        static_cast<D3D11Texture2D*>(pResource)->GetDesc(&resourceDesc);
-        
-        if (pDesc->ViewDimension != D3D11_RTV_DIMENSION_TEXTURE2D
-         && pDesc->ViewDimension != D3D11_RTV_DIMENSION_TEXTURE2DARRAY
-         && pDesc->ViewDimension != D3D11_RTV_DIMENSION_TEXTURE2DMS
-         && pDesc->ViewDimension != D3D11_RTV_DIMENSION_TEXTURE2DMSARRAY) {
-          Logger::err("D3D11: Incompatible view dimension for Texture2D");
-          return E_INVALIDARG;
-        }
-        
-        format    = resourceDesc.Format;
-        numLayers = resourceDesc.ArraySize;
-      } break;
-      
-      case D3D11_RESOURCE_DIMENSION_TEXTURE3D: {
-        D3D11_TEXTURE3D_DESC resourceDesc;
-        static_cast<D3D11Texture3D*>(pResource)->GetDesc(&resourceDesc);
-        
-        if (pDesc->ViewDimension != D3D11_RTV_DIMENSION_TEXTURE3D) {
-          Logger::err("D3D11: Incompatible view dimension for Texture3D");
-          return E_INVALIDARG;
-        }
-        
-        format    = resourceDesc.Format;
-        numLayers = resourceDesc.Depth;
-      } break;
-      
-      default:
-        return E_INVALIDARG;
-    }
-    
-    if (pDesc->Format == DXGI_FORMAT_UNKNOWN)
-      pDesc->Format = format;
-    
-    switch (pDesc->ViewDimension) {
-      case D3D11_RTV_DIMENSION_TEXTURE1DARRAY:
-        if (pDesc->Texture1DArray.ArraySize == D3D11_DXVK_USE_REMAINING_LAYERS)
-          pDesc->Texture1DArray.ArraySize = numLayers - pDesc->Texture1DArray.FirstArraySlice;
-        break;
-      
-      case D3D11_RTV_DIMENSION_TEXTURE2DARRAY:
-        if (pDesc->Texture2DArray.ArraySize == D3D11_DXVK_USE_REMAINING_LAYERS)
-          pDesc->Texture2DArray.ArraySize = numLayers - pDesc->Texture2DArray.FirstArraySlice;
-        break;
-      
-      case D3D11_RTV_DIMENSION_TEXTURE2DMSARRAY:
-        if (pDesc->Texture2DMSArray.ArraySize == D3D11_DXVK_USE_REMAINING_LAYERS)
-          pDesc->Texture2DMSArray.ArraySize = numLayers - pDesc->Texture2DMSArray.FirstArraySlice;
-        break;
-      
-      case D3D11_RTV_DIMENSION_TEXTURE3D:
-        if (pDesc->Texture3D.WSize == D3D11_DXVK_USE_REMAINING_LAYERS)
-          pDesc->Texture3D.WSize = numLayers - pDesc->Texture3D.FirstWSlice;
-        break;
-      
-      default:
-        break;
-    }
-    
-    return S_OK;
-  }
-  
-  
-  HRESULT D3D11Device::SetDepthStencilViewDescUnspecValues(
-          ID3D11Resource*                   pResource,
-          D3D11_DEPTH_STENCIL_VIEW_DESC*    pDesc) {
-    D3D11_RESOURCE_DIMENSION resourceDim = D3D11_RESOURCE_DIMENSION_UNKNOWN;
-    pResource->GetType(&resourceDim);
-    
-    DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
-    uint32_t numLayers = 0;
-    
-    switch (resourceDim) {
-      case D3D11_RESOURCE_DIMENSION_TEXTURE1D: {
-        D3D11_TEXTURE1D_DESC resourceDesc;
-        static_cast<D3D11Texture1D*>(pResource)->GetDesc(&resourceDesc);
-        
-        if (pDesc->ViewDimension != D3D11_DSV_DIMENSION_TEXTURE1D
-         && pDesc->ViewDimension != D3D11_DSV_DIMENSION_TEXTURE1DARRAY) {
-          Logger::err("D3D11: Incompatible view dimension for Texture1D");
-          return E_INVALIDARG;
-        }
-        
-        format    = resourceDesc.Format;
-        numLayers = resourceDesc.ArraySize;
-      } break;
-      
-      case D3D11_RESOURCE_DIMENSION_TEXTURE2D: {
-        D3D11_TEXTURE2D_DESC resourceDesc;
-        static_cast<D3D11Texture2D*>(pResource)->GetDesc(&resourceDesc);
-        
-        if (pDesc->ViewDimension != D3D11_DSV_DIMENSION_TEXTURE2D
-         && pDesc->ViewDimension != D3D11_DSV_DIMENSION_TEXTURE2DARRAY
-         && pDesc->ViewDimension != D3D11_DSV_DIMENSION_TEXTURE2DMS
-         && pDesc->ViewDimension != D3D11_DSV_DIMENSION_TEXTURE2DMSARRAY) {
-          Logger::err("D3D11: Incompatible view dimension for Texture2D");
-          return E_INVALIDARG;
-        }
-        
-        format    = resourceDesc.Format;
-        numLayers = resourceDesc.ArraySize;
-      } break;
-      
-      default:
-        return E_INVALIDARG;
-    }
-    
-    if (pDesc->Format == DXGI_FORMAT_UNKNOWN)
-      pDesc->Format = format;
-    
-    switch (pDesc->ViewDimension) {
-      case D3D11_DSV_DIMENSION_TEXTURE1DARRAY:
-        if (pDesc->Texture1DArray.ArraySize == D3D11_DXVK_USE_REMAINING_LAYERS)
-          pDesc->Texture1DArray.ArraySize = numLayers - pDesc->Texture1DArray.FirstArraySlice;
-        break;
-      
-      case D3D11_DSV_DIMENSION_TEXTURE2DARRAY:
-        if (pDesc->Texture2DArray.ArraySize == D3D11_DXVK_USE_REMAINING_LAYERS)
-          pDesc->Texture2DArray.ArraySize = numLayers - pDesc->Texture2DArray.FirstArraySlice;
-        break;
-      
-      case D3D11_DSV_DIMENSION_TEXTURE2DMSARRAY:
-        if (pDesc->Texture2DMSArray.ArraySize == D3D11_DXVK_USE_REMAINING_LAYERS)
-          pDesc->Texture2DMSArray.ArraySize = numLayers - pDesc->Texture2DMSArray.FirstArraySlice;
-        break;
-      
-      default:
-        break;
-    }
-    
-    return S_OK;
-  }
-  
-  
-  VkSamplerAddressMode D3D11Device::DecodeAddressMode(
-          D3D11_TEXTURE_ADDRESS_MODE  mode) const {
-    switch (mode) {
-      case D3D11_TEXTURE_ADDRESS_WRAP:
-        return VK_SAMPLER_ADDRESS_MODE_REPEAT;
-        
-      case D3D11_TEXTURE_ADDRESS_MIRROR:
-        return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
-      
-      case D3D11_TEXTURE_ADDRESS_CLAMP:
-        return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        
-      case D3D11_TEXTURE_ADDRESS_BORDER:
-        return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-        
-      case D3D11_TEXTURE_ADDRESS_MIRROR_ONCE:
-        return VK_SAMPLER_ADDRESS_MODE_MIRROR_CLAMP_TO_EDGE;
-      
-      default:
-        Logger::err(str::format("D3D11: Unsupported address mode: ", mode));
-        return VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    }
-  }
-  
-  
-  HRESULT D3D11Device::GetFormatSupportFlags(DXGI_FORMAT Format, UINT* pFlags) const {
+  HRESULT D3D11Device::GetFormatSupportFlags(DXGI_FORMAT Format, UINT* pFlags1, UINT* pFlags2) const {
     const VkFormat fmt = m_dxgiAdapter->LookupFormat(Format, DxgiFormatMode::Any).format;
     const VkFormatProperties fmtInfo = m_dxvkAdapter->formatProperties(fmt);
-    
     if (fmt == VK_FORMAT_UNDEFINED)
       return E_FAIL;
     
-    UINT flags = 0;
+    UINT flags1 = 0;
+    UINT flags2 = 0;
     
     if (fmtInfo.bufferFeatures & VK_FORMAT_FEATURE_UNIFORM_TEXEL_BUFFER_BIT)
-      flags |= D3D11_FORMAT_SUPPORT_BUFFER;
+      flags1 |= D3D11_FORMAT_SUPPORT_BUFFER;
     
     if (fmtInfo.bufferFeatures & VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT)
-      flags |= D3D11_FORMAT_SUPPORT_IA_VERTEX_BUFFER;
+      flags1 |= D3D11_FORMAT_SUPPORT_IA_VERTEX_BUFFER;
     
     if (Format == DXGI_FORMAT_R16_UINT || Format == DXGI_FORMAT_R32_UINT)
-      flags |= D3D11_FORMAT_SUPPORT_IA_INDEX_BUFFER;
+      flags1 |= D3D11_FORMAT_SUPPORT_IA_INDEX_BUFFER;
     
     // TODO implement stream output
     // D3D11_FORMAT_SUPPORT_SO_BUFFER
     
     if (fmtInfo.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT) {
-      flags |= D3D11_FORMAT_SUPPORT_TEXTURE1D
-            |  D3D11_FORMAT_SUPPORT_TEXTURE2D
-            |  D3D11_FORMAT_SUPPORT_TEXTURE3D
-            |  D3D11_FORMAT_SUPPORT_TEXTURECUBE
-            |  D3D11_FORMAT_SUPPORT_SHADER_LOAD
-            |  D3D11_FORMAT_SUPPORT_SHADER_GATHER
-            |  D3D11_FORMAT_SUPPORT_SHADER_GATHER_COMPARISON
-            |  D3D11_FORMAT_SUPPORT_SHADER_SAMPLE
-            |  D3D11_FORMAT_SUPPORT_SHADER_SAMPLE_COMPARISON
-            |  D3D11_FORMAT_SUPPORT_MIP
-            |  D3D11_FORMAT_SUPPORT_MIP_AUTOGEN
-            |  D3D11_FORMAT_SUPPORT_MULTISAMPLE_RESOLVE
-            |  D3D11_FORMAT_SUPPORT_CAST_WITHIN_BIT_LAYOUT;
+      flags1 |= D3D11_FORMAT_SUPPORT_TEXTURE1D
+             |  D3D11_FORMAT_SUPPORT_TEXTURE2D
+             |  D3D11_FORMAT_SUPPORT_TEXTURE3D
+             |  D3D11_FORMAT_SUPPORT_TEXTURECUBE
+             |  D3D11_FORMAT_SUPPORT_SHADER_LOAD
+             |  D3D11_FORMAT_SUPPORT_SHADER_GATHER
+             |  D3D11_FORMAT_SUPPORT_SHADER_GATHER_COMPARISON
+             |  D3D11_FORMAT_SUPPORT_SHADER_SAMPLE
+             |  D3D11_FORMAT_SUPPORT_SHADER_SAMPLE_COMPARISON
+             |  D3D11_FORMAT_SUPPORT_MIP
+             |  D3D11_FORMAT_SUPPORT_MIP_AUTOGEN
+             |  D3D11_FORMAT_SUPPORT_MULTISAMPLE_RESOLVE
+             |  D3D11_FORMAT_SUPPORT_CAST_WITHIN_BIT_LAYOUT;
     }
     
-    if (fmtInfo.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT)
-      flags |= D3D11_FORMAT_SUPPORT_RENDER_TARGET;
+    if (fmtInfo.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT) {
+      flags1 |= D3D11_FORMAT_SUPPORT_RENDER_TARGET;
+      
+      if (m_dxvkDevice->features().logicOp)
+        flags2 |= D3D11_FORMAT_SUPPORT2_OUTPUT_MERGER_LOGIC_OP;
+    }
     
     if (fmtInfo.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT)
-      flags |= D3D11_FORMAT_SUPPORT_BLENDABLE;
+      flags1 |= D3D11_FORMAT_SUPPORT_BLENDABLE;
     
     if (fmtInfo.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
-      flags |= D3D11_FORMAT_SUPPORT_DEPTH_STENCIL;
+      flags1 |= D3D11_FORMAT_SUPPORT_DEPTH_STENCIL;
     
     if (fmtInfo.optimalTilingFeatures)
-      flags |= D3D11_FORMAT_SUPPORT_CPU_LOCKABLE;
+      flags1 |= D3D11_FORMAT_SUPPORT_CPU_LOCKABLE;
     
     if ((fmtInfo.bufferFeatures & VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_BIT)
-     || (fmtInfo.optimalTilingFeatures & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT))
-      flags |= D3D11_FORMAT_SUPPORT_TYPED_UNORDERED_ACCESS_VIEW;
+     || (fmtInfo.optimalTilingFeatures & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT)) {
+      flags1 |= D3D11_FORMAT_SUPPORT_TYPED_UNORDERED_ACCESS_VIEW;
+      flags2 |= D3D11_FORMAT_SUPPORT2_UAV_TYPED_STORE;
+      
+      if (m_dxvkDevice->features().shaderStorageImageReadWithoutFormat
+       || Format == DXGI_FORMAT_R32_UINT
+       || Format == DXGI_FORMAT_R32_SINT
+       || Format == DXGI_FORMAT_R32_FLOAT)
+        flags2 |= D3D11_FORMAT_SUPPORT2_UAV_TYPED_LOAD;
+    }
     
     // FIXME implement properly. This would require a VkSurface.
     if (Format == DXGI_FORMAT_R8G8B8A8_UNORM
@@ -2413,23 +1943,42 @@ namespace dxvk {
      || Format == DXGI_FORMAT_R16G16B16A16_FLOAT
      || Format == DXGI_FORMAT_R10G10B10A2_UNORM
      || Format == DXGI_FORMAT_R10G10B10_XR_BIAS_A2_UNORM)
-      flags |= D3D11_FORMAT_SUPPORT_DISPLAY;
+      flags1 |= D3D11_FORMAT_SUPPORT_DISPLAY;
     
-    // Query multisampling info
+    // Query multisample support info
+    const DxvkFormatInfo* formatInfo = imageFormatInfo(fmt);
+    
     VkImageFormatProperties imgInfo;
     
     VkResult status = m_dxvkAdapter->imageFormatProperties(fmt,
       VK_IMAGE_TYPE_2D,
       VK_IMAGE_TILING_OPTIMAL,
-      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+      (formatInfo->aspectMask & VK_IMAGE_ASPECT_COLOR_BIT)
+        ? VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+        : VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
       0, imgInfo);
     
     if (status == VK_SUCCESS && imgInfo.sampleCounts > VK_SAMPLE_COUNT_1_BIT) {
-      flags |= D3D11_FORMAT_SUPPORT_MULTISAMPLE_RENDERTARGET
-            |  D3D11_FORMAT_SUPPORT_MULTISAMPLE_LOAD;
+      flags1 |= D3D11_FORMAT_SUPPORT_MULTISAMPLE_RENDERTARGET
+             |  D3D11_FORMAT_SUPPORT_MULTISAMPLE_LOAD;
     }
     
-    *pFlags = flags;
+    if (Format == DXGI_FORMAT_R32_UINT
+     || Format == DXGI_FORMAT_R32_SINT) {
+      flags2 |= D3D11_FORMAT_SUPPORT2_UAV_ATOMIC_ADD
+             |  D3D11_FORMAT_SUPPORT2_UAV_ATOMIC_BITWISE_OPS
+             |  D3D11_FORMAT_SUPPORT2_UAV_ATOMIC_COMPARE_STORE_OR_COMPARE_EXCHANGE
+             |  D3D11_FORMAT_SUPPORT2_UAV_ATOMIC_EXCHANGE;
+    }
+    
+    if (Format == DXGI_FORMAT_R32_SINT)
+      flags2 |= D3D11_FORMAT_SUPPORT2_UAV_ATOMIC_SIGNED_MIN_OR_MAX;
+    
+    if (Format == DXGI_FORMAT_R32_UINT)
+      flags2 |= D3D11_FORMAT_SUPPORT2_UAV_ATOMIC_UNSIGNED_MIN_OR_MAX;
+    
+    if (pFlags1 != nullptr) *pFlags1 = flags1;
+    if (pFlags2 != nullptr) *pFlags2 = flags2;
     return S_OK;
   }
   
@@ -2488,7 +2037,8 @@ namespace dxvk {
   
   
   D3D_FEATURE_LEVEL D3D11Device::GetMaxFeatureLevel() {
-    static const std::array<std::pair<std::string, D3D_FEATURE_LEVEL>, 6> s_featureLevels = {{
+    static const std::array<std::pair<std::string, D3D_FEATURE_LEVEL>, 7> s_featureLevels = {{
+      { "11_1", D3D_FEATURE_LEVEL_11_1 },
       { "11_0", D3D_FEATURE_LEVEL_11_0 },
       { "10_1", D3D_FEATURE_LEVEL_10_1 },
       { "10_0", D3D_FEATURE_LEVEL_10_0 },
@@ -2507,7 +2057,6 @@ namespace dxvk {
     return entry != s_featureLevels.end()
       ? entry->second
       : D3D_FEATURE_LEVEL_11_0;
-    
   }
   
 }

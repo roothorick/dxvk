@@ -1,7 +1,6 @@
 #pragma once
 
-#include <mutex>
-#include <unordered_map>
+#include <vector>
 
 #include "dxvk_binding.h"
 #include "dxvk_constant_state.h"
@@ -9,6 +8,7 @@
 #include "dxvk_pipelayout.h"
 #include "dxvk_resource.h"
 #include "dxvk_shader.h"
+#include "dxvk_stats.h"
 
 namespace dxvk {
   
@@ -59,8 +59,6 @@ namespace dxvk {
     uint32_t                            msSampleMask;
     VkBool32                            msEnableAlphaToCoverage;
     VkBool32                            msEnableAlphaToOne;
-    VkBool32                            msEnableSampleShading;
-    float                               msMinSampleShading;
     
     VkBool32                            dsEnableDepthTest;
     VkBool32                            dsEnableDepthWrite;
@@ -76,6 +74,18 @@ namespace dxvk {
     VkLogicOp                           omLogicOp;
     VkRenderPass                        omRenderPass;
     VkPipelineColorBlendAttachmentState omBlendAttachments[MaxNumRenderTargets];
+  };
+  
+  
+  /**
+   * \brief Common graphics pipeline state
+   * 
+   * Non-dynamic pipeline state that cannot
+   * be changed dynamically.
+   */
+  struct DxvkGraphicsCommonPipelineStateInfo {
+    bool                                msSampleShadingEnable;
+    float                               msSampleShadingFactor;
   };
   
   
@@ -118,10 +128,12 @@ namespace dxvk {
      * Retrieves a pipeline handle for the given pipeline
      * state. If necessary, a new pipeline will be created.
      * \param [in] state Pipeline state vector
+     * \param [in,out] stats Stat counter
      * \returns Pipeline handle
      */
     VkPipeline getPipelineHandle(
-      const DxvkGraphicsPipelineStateInfo& state);
+      const DxvkGraphicsPipelineStateInfo& state,
+            DxvkStatCounters&              stats);
     
   private:
     
@@ -133,8 +145,8 @@ namespace dxvk {
     const DxvkDevice* const m_device;
     const Rc<vk::DeviceFn>  m_vkd;
     
-    Rc<DxvkPipelineCache> m_cache;
-    Rc<DxvkPipelineLayout> m_layout;
+    Rc<DxvkPipelineCache>   m_cache;
+    Rc<DxvkPipelineLayout>  m_layout;
     
     Rc<DxvkShaderModule>  m_vs;
     Rc<DxvkShaderModule>  m_tcs;
@@ -145,7 +157,8 @@ namespace dxvk {
     uint32_t m_vsIn  = 0;
     uint32_t m_fsOut = 0;
     
-    std::mutex                  m_mutex;
+    DxvkGraphicsCommonPipelineStateInfo m_common;
+    
     std::vector<PipelineStruct> m_pipelines;
     
     VkPipeline m_basePipeline = VK_NULL_HANDLE;
@@ -159,10 +172,8 @@ namespace dxvk {
     bool validatePipelineState(
       const DxvkGraphicsPipelineStateInfo& state) const;
     
-    VkRasterizationOrderAMD pickRasterizationOrder(
-      const DxvkGraphicsPipelineStateInfo& state) const;
-    
     void logPipelineState(
+            LogLevel                       level,
       const DxvkGraphicsPipelineStateInfo& state) const;
     
   };

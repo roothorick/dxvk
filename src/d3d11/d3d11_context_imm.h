@@ -4,8 +4,11 @@
 
 namespace dxvk {
   
+  class D3D11Buffer;
+  class D3D11CommonTexture;
+  
   class D3D11ImmediateContext : public D3D11DeviceContext {
-    
+    constexpr static UINT MaxPendingDraws = 500;
   public:
     
     D3D11ImmediateContext(
@@ -25,10 +28,10 @@ namespace dxvk {
     
     void STDMETHODCALLTYPE ExecuteCommandList(
             ID3D11CommandList*  pCommandList,
-            WINBOOL             RestoreContextState) final;
+            BOOL                RestoreContextState) final;
     
     HRESULT STDMETHODCALLTYPE FinishCommandList(
-            WINBOOL             RestoreDeferredContextState,
+            BOOL                RestoreDeferredContextState,
             ID3D11CommandList   **ppCommandList) final;
     
     HRESULT STDMETHODCALLTYPE Map(
@@ -42,13 +45,40 @@ namespace dxvk {
             ID3D11Resource*             pResource,
             UINT                        Subresource) final;
     
+    void STDMETHODCALLTYPE OMSetRenderTargets(
+            UINT                              NumViews,
+            ID3D11RenderTargetView* const*    ppRenderTargetViews,
+            ID3D11DepthStencilView*           pDepthStencilView) final;
+    
     void SynchronizeCsThread();
     
   private:
     
     DxvkCsThread m_csThread;
+    bool         m_csIsBusy = false;
+    
+    HRESULT MapBuffer(
+            D3D11Buffer*                pResource,
+            D3D11_MAP                   MapType,
+            UINT                        MapFlags,
+            D3D11_MAPPED_SUBRESOURCE*   pMappedResource);
+    
+    HRESULT MapImage(
+            D3D11CommonTexture*         pResource,
+            UINT                        Subresource,
+            D3D11_MAP                   MapType,
+            UINT                        MapFlags,
+            D3D11_MAPPED_SUBRESOURCE*   pMappedResource);
+    
+    void UnmapImage(
+            D3D11CommonTexture*         pResource,
+            UINT                        Subresource);
     
     void SynchronizeDevice();
+    
+    bool WaitForResource(
+      const Rc<DxvkResource>&                 Resource,
+            UINT                              MapFlags);
     
     void EmitCsChunk(Rc<DxvkCsChunk>&& chunk) final;
     

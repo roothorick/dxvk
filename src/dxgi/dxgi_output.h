@@ -1,18 +1,21 @@
 #pragma once
 
+#include <mutex>
+
 #include "dxgi_object.h"
 
 namespace dxvk {
   
   class DxgiAdapter;
+  class DxgiSwapChain;
   
   class DxgiOutput : public DxgiObject<IDXGIOutput> {
     
   public:
     
     DxgiOutput(
-            DxgiAdapter*  adapter,
-            HMONITOR      monitor);
+      const Com<DxgiAdapter>& adapter,
+            HMONITOR          monitor);
     
     ~DxgiOutput();
     

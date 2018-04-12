@@ -4,12 +4,16 @@
 
 namespace dxvk::hud {
   
-  Hud::Hud(const Rc<DxvkDevice>& device)
-  : m_device        (device),
+  Hud::Hud(
+    const Rc<DxvkDevice>& device,
+    const HudConfig&      config)
+  : m_config        (config),
+    m_device        (device),
     m_context       (m_device->createContext()),
     m_textRenderer  (m_device, m_context),
     m_uniformBuffer (createUniformBuffer()),
-    m_hudDeviceInfo (device) {
+    m_hudDeviceInfo (device),
+    m_hudStats      (config.elements) {
     this->setupConstantState();
   }
   
@@ -28,6 +32,7 @@ namespace dxvk::hud {
     }
       
     m_hudFps.update();
+    m_hudStats.update(m_device);
     
     this->beginRenderPass(recreateFbo);
     this->updateUniformBuffer();
@@ -37,13 +42,11 @@ namespace dxvk::hud {
   
   
   Rc<Hud> Hud::createHud(const Rc<DxvkDevice>& device) {
-    const std::string hudConfig = env::getEnvVar(L"DXVK_HUD");
+    HudConfig config(env::getEnvVar(L"DXVK_HUD"));
     
-    if (hudConfig.size() == 0)
-      return nullptr;
-    
-    // TODO implement configuration options for the HUD
-    return new Hud(device);
+    return !config.elements.isClear()
+      ? new Hud(device, config)
+      : nullptr;
   }
   
   
@@ -65,9 +68,18 @@ namespace dxvk::hud {
     m_textRenderer.beginFrame(m_context);
     
     HudPos position = { 8.0f, 24.0f };
-    position = m_hudDeviceInfo.renderText(
-      m_context, m_textRenderer, position);
-    position = m_hudFps.renderText(
+    
+    if (m_config.elements.test(HudElement::DeviceInfo)) {
+      position = m_hudDeviceInfo.renderText(
+        m_context, m_textRenderer, position);
+    }
+    
+    if (m_config.elements.test(HudElement::Framerate)) {
+      position = m_hudFps.renderText(
+        m_context, m_textRenderer, position);
+    }
+    
+    position = m_hudStats.renderText(
       m_context, m_textRenderer, position);
   }
   
@@ -93,13 +105,6 @@ namespace dxvk::hud {
           0, 1, 0, 1 });
     }
     
-    VkClearAttachment clearInfo;
-    clearInfo.aspectMask      = VK_IMAGE_ASPECT_COLOR_BIT;
-    clearInfo.colorAttachment = 0;
-    
-    for (uint32_t i = 0; i < 4; i++)
-      clearInfo.clearValue.color.float32[i] = 0.0f;
-    
     VkClearRect clearRect;
     clearRect.rect.offset = { 0, 0 };
     clearRect.rect.extent = m_surfaceSize;
@@ -107,7 +112,10 @@ namespace dxvk::hud {
     clearRect.layerCount     = 1;
     
     m_context->bindFramebuffer(m_renderTargetFbo);
-    m_context->clearRenderTarget(clearInfo, clearRect);
+    m_context->clearRenderTarget(
+      m_renderTargetView, clearRect,
+      VK_IMAGE_ASPECT_COLOR_BIT,
+      VkClearValue { });
     
     VkViewport viewport;
     viewport.x        = 0.0f;
@@ -190,8 +198,6 @@ namespace dxvk::hud {
     msState.sampleMask            = 0xFFFFFFFF;
     msState.enableAlphaToCoverage = VK_FALSE;
     msState.enableAlphaToOne      = VK_FALSE;
-    msState.enableSampleShading   = VK_FALSE;
-    msState.minSampleShading      = 1.0f;
     m_context->setMultisampleState(msState);
     
     VkStencilOpState stencilOp;

@@ -1,38 +1,35 @@
 #pragma once
 
-#include <atomic>
-#include <array>
-
 #include "dxvk_include.h"
 
 namespace dxvk {
   
   /**
-   * \brief Statistics counter
+   * \brief Named stat counters
+   * 
+   * Enumerates available stat counters. Used
+   * thogether with \ref DxvkStatCounters.
    */
-  enum class DxvkStat : uint32_t {
-    CtxDescriptorUpdates, ///< # of descriptor set writes
-    CtxDrawCalls,         ///< # of vkCmdDraw/vkCmdDrawIndexed
-    CtxDispatchCalls,     ///< # of vkCmdDispatch
-    CtxFramebufferBinds,  ///< # of render pass begin/end
-    CtxPipelineBinds,     ///< # of vkCmdBindPipeline
-    DevQueueSubmissions,  ///< # of vkQueueSubmit
-    DevQueuePresents,     ///< # of vkQueuePresentKHR (aka frames)
-    DevSynchronizations,  ///< # of vkDeviceWaitIdle
-    ResBufferCreations,   ///< # of buffer creations
-    ResBufferUpdates,     ///< # of unmapped buffer updates
-    ResImageCreations,    ///< # of image creations
-    ResImageUpdates,      ///< # of unmapped image updates
-    // Do not remove
-    MaxCounterId
+  enum class DxvkStatCounter : uint32_t {
+    CmdDrawCalls,             ///< Number of draw calls
+    CmdDispatchCalls,         ///< Number of compute calls
+    CmdRenderPassCount,       ///< Number of render passes
+    MemoryAllocationCount,    ///< Number of memory allocations
+    MemoryAllocated,          ///< Amount of memory allocated
+    MemoryUsed,               ///< Amount of memory used
+    PipeCountGraphics,        ///< Number of graphics pipelines
+    PipeCountCompute,         ///< Number of compute pipelines
+    QueueSubmitCount,         ///< Number of command buffer submissions
+    QueuePresentCount,        ///< Number of present calls / frames
+    NumCounters,              ///< Number of counters available
   };
   
   
   /**
-   * \brief Device statistics
+   * \brief Stat counters
    * 
-   * Stores a bunch of counters that may be useful
-   * for performance evaluation and optimization.
+   * Collects various statistics that may be
+   * useful to identify performance bottlenecks.
    */
   class DxvkStatCounters {
     
@@ -41,67 +38,72 @@ namespace dxvk {
     DxvkStatCounters();
     ~DxvkStatCounters();
     
-    DxvkStatCounters(
-      const DxvkStatCounters& other);
-    
-    DxvkStatCounters& operator = (const DxvkStatCounters& other);
-    
     /**
-     * \brief Increments a counter by a given value
+     * \brief Retrieves a counter value
      * 
-     * \param [in] counter The counter to increment
-     * \param [in] amount Number to add to the counter
+     * \param [in] ctr The counter
+     * \returns Counter value
      */
-    void increment(DxvkStat counter, uint32_t amount) {
-      m_counters[counterId(counter)] += amount;
+    uint32_t getCtr(DxvkStatCounter ctr) const {
+      return m_counters[uint32_t(ctr)];
     }
     
     /**
-     * \brief Returns a counter
+     * \brief Sets a counter value
      * 
-     * \param [in] counter The counter to retrieve
-     * \returns Current value of the counter
+     * \param [in] ctr The counter
+     * \param [in] val Counter value
      */
-    uint32_t get(DxvkStat counter) const {
-      return m_counters[counterId(counter)];
+    void setCtr(DxvkStatCounter ctr, uint32_t val) {
+      m_counters[uint32_t(ctr)] = val;
     }
     
     /**
-     * \brief Computes delta to a previous state
+     * \brief Increments a counter value
      * 
-     * \param [in] oldState previous state
-     * \returns Difference to previous state
+     * \param [in] ctr Counter to increment
+     * \param [in] val Number to add to counter value
      */
-    DxvkStatCounters delta(
-      const DxvkStatCounters& oldState) const;
+    void addCtr(DxvkStatCounter ctr, uint32_t val) {
+      m_counters[uint32_t(ctr)] += val;
+    }
     
     /**
-     * \brief Adds counters from another source
-     * 
-     * Adds each counter from the source operand to the
-     * corresponding counter in this set. Useful to merge
-     * context counters and device counters.
-     * \param [in] counters Counters to add
+     * \brief Resets a counter
+     * \param [in] ctr The counter
      */
-    void addCounters(
-      const DxvkStatCounters& counters);
+    void clrCtr(DxvkStatCounter ctr) {
+      m_counters[uint32_t(ctr)] = 0;
+    }
     
     /**
-     * \brief Clears counters
+     * \brief Computes difference
      * 
-     * Should be used to clear per-context counters.
-     * Do not clear the global device counters.
+     * Computes difference between counter values.
+     * \param [in] other Counters to subtract
+     * \returns Difference between counter sets
      */
-    void clear();
+    DxvkStatCounters diff(const DxvkStatCounters& other) const;
+    
+    /**
+     * \brief Merges counters
+     * 
+     * Adds counter values from another set
+     * of counters to this set of counters.
+     * \param [in] other Counters to add
+     */
+    void merge(const DxvkStatCounters& other);
+    
+    /**
+     * \brief Resets counters
+     * 
+     * Sets all counters to zero.
+     */
+    void reset();
     
   private:
     
-    std::array<std::atomic<uint32_t>,
-      static_cast<uint32_t>(DxvkStat::MaxCounterId)> m_counters;
-    
-    static size_t counterId(DxvkStat counter) {
-      return static_cast<uint32_t>(counter);
-    }
+    std::array<uint32_t, uint32_t(DxvkStatCounter::NumCounters)> m_counters;
     
   };
   

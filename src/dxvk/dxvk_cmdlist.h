@@ -1,8 +1,9 @@
 #pragma once
 
-#include <unordered_set>
+#include <limits>
 
 #include "dxvk_binding.h"
+#include "dxvk_buffer.h"
 #include "dxvk_descriptor.h"
 #include "dxvk_event_tracker.h"
 #include "dxvk_lifetime.h"
@@ -10,6 +11,8 @@
 #include "dxvk_pipelayout.h"
 #include "dxvk_query_tracker.h"
 #include "dxvk_staging.h"
+#include "dxvk_stats.h"
+#include "dxvk_sync.h"
 
 namespace dxvk {
   
@@ -38,13 +41,43 @@ namespace dxvk {
      * \param [in] queue Device queue
      * \param [in] waitSemaphore Semaphore to wait on
      * \param [in] wakeSemaphore Semaphore to signal
-     * \param [in] fence Fence to signal
+     * \returns Submission status
      */
-    void submit(
+    VkResult submit(
             VkQueue         queue,
             VkSemaphore     waitSemaphore,
-            VkSemaphore     wakeSemaphore,
-            VkFence         fence);
+            VkSemaphore     wakeSemaphore);
+    
+    /**
+     * \brief Synchronizes command buffer execution
+     * 
+     * Waits for the fence associated with
+     * this command buffer to get signaled.
+     * \returns Synchronization status
+     */
+    VkResult synchronize();
+    
+    /**
+     * \brief Stat counters
+     * 
+     * Retrieves some info about per-command list
+     * statistics, such as the number of draw calls
+     * or the number of pipelines compiled.
+     * \returns Reference to stat counters
+     */
+    DxvkStatCounters& statCounters() {
+      return m_statCounters;
+    }
+    
+    /**
+     * \brief Increments a stat counter value
+     * 
+     * \param [in] ctr The counter to increment
+     * \param [in] val The value to add
+     */
+    void addStatCtr(DxvkStatCounter ctr, uint32_t val) {
+      m_statCounters.addCtr(ctr, val);
+    }
     
     /**
      * \brief Begins recording
@@ -59,8 +92,24 @@ namespace dxvk {
      * 
      * Ends command buffer recording, making
      * the command list ready for submission.
+     * \param [in] stats Stat counters
      */
     void endRecording();
+    
+    /**
+     * \brief Frees physical buffer slice
+     * 
+     * After the command buffer execution has finished,
+     * the given physical slice will be released to the
+     * virtual buffer object so that it can be reused.
+     * \param [in] buffer The virtual buffer object
+     * \param [in] slice The physical buffer slice
+     */
+    void freePhysicalBufferSlice(
+      const Rc<DxvkBuffer>&           buffer,
+      const DxvkPhysicalBufferSlice&  slice) {
+      m_bufferTracker.freeBufferSlice(buffer, slice);
+    }
     
     /**
      * \brief Adds a resource to track
@@ -127,18 +176,27 @@ namespace dxvk {
      */
     void reset();
     
-    
     VkDescriptorSet allocateDescriptorSet(
             VkDescriptorSetLayout   descriptorLayout) {
       return m_descAlloc.alloc(descriptorLayout);
     }
     
     
-    void updateDescriptorSet(
-            uint32_t                descriptorCount,
-      const VkWriteDescriptorSet*   descriptorWrites) {
+    void updateDescriptorSets(
+            uint32_t                      descriptorWriteCount,
+      const VkWriteDescriptorSet*         pDescriptorWrites) {
       m_vkd->vkUpdateDescriptorSets(m_vkd->device(),
-        descriptorCount, descriptorWrites, 0, nullptr);
+        descriptorWriteCount, pDescriptorWrites,
+        0, nullptr);
+    }
+    
+    
+    void updateDescriptorSetWithTemplate(
+            VkDescriptorSet               descriptorSet,
+            VkDescriptorUpdateTemplateKHR descriptorTemplate,
+      const void*                         data) {
+      m_vkd->vkUpdateDescriptorSetWithTemplateKHR(m_vkd->device(),
+        descriptorSet, descriptorTemplate, data);
     }
     
     
@@ -500,6 +558,8 @@ namespace dxvk {
     
     Rc<vk::DeviceFn>    m_vkd;
     
+    VkFence             m_fence;
+    
     VkCommandPool       m_pool;
     VkCommandBuffer     m_buffer;
     
@@ -508,6 +568,8 @@ namespace dxvk {
     DxvkStagingAlloc    m_stagingAlloc;
     DxvkQueryTracker    m_queryTracker;
     DxvkEventTracker    m_eventTracker;
+    DxvkBufferTracker   m_bufferTracker;
+    DxvkStatCounters    m_statCounters;
     
   };
   

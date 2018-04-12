@@ -6,7 +6,10 @@
 #include "dxvk_context_state.h"
 #include "dxvk_data.h"
 #include "dxvk_event.h"
+#include "dxvk_meta_clear.h"
 #include "dxvk_meta_resolve.h"
+#include "dxvk_pipecache.h"
+#include "dxvk_pipemanager.h"
 #include "dxvk_query.h"
 #include "dxvk_query_pool.h"
 #include "dxvk_util.h"
@@ -24,7 +27,10 @@ namespace dxvk {
     
   public:
     
-    DxvkContext(const Rc<DxvkDevice>& device);
+    DxvkContext(
+      const Rc<DxvkDevice>&           device,
+      const Rc<DxvkPipelineCache>&    pipelineCache,
+      const Rc<DxvkMetaClearObjects>& metaClearObjects);
     ~DxvkContext();
     
     /**
@@ -96,28 +102,19 @@ namespace dxvk {
       const DxvkBufferSlice&      buffer);
     
     /**
-     * \brief Binds texel buffer view
+     * \brief Binds image or buffer view
      * 
-     * Can be used for both uniform texel
-     * buffers and storage texel buffers.
-     * \param [in] slot Resource binding slot
-     * \param [in] bufferView Buffer view to bind
-     */
-    void bindResourceTexelBuffer(
-            uint32_t              slot,
-      const Rc<DxvkBufferView>&   bufferView);
-    
-    /**
-     * \brief Binds image view
-     * 
-     * Can be used for sampled images with a
-     * dedicated sampler and storage images.
+     * Can be used for sampled images with a dedicated
+     * sampler and for storage images, as well as for
+     * uniform texel buffers and storage texel buffers.
      * \param [in] slot Resource binding slot
      * \param [in] imageView Image view to bind
+     * \param [in] bufferView Buffer view to bind
      */
-    void bindResourceImage(
+    void bindResourceView(
             uint32_t              slot,
-      const Rc<DxvkImageView>&    image);
+      const Rc<DxvkImageView>&    imageView,
+      const Rc<DxvkBufferView>&   bufferView);
     
     /**
      * \brief Binds image sampler
@@ -171,6 +168,22 @@ namespace dxvk {
             uint32_t              value);
     
     /**
+     * \brief Clears a buffer view
+     * 
+     * Unlike \c clearBuffer, this method can be used
+     * to clear a buffer view with format conversion. 
+     * \param [in] bufferView The buffer view
+     * \param [in] offset Offset of the region to clear
+     * \param [in] length Extent of the region to clear
+     * \param [in] value The clear value
+     */
+    void clearBufferView(
+      const Rc<DxvkBufferView>&   bufferView,
+            VkDeviceSize          offset,
+            VkDeviceSize          length,
+            VkClearColorValue     value);
+    
+    /**
      * \brief Clears subresources of a color image
      * 
      * \param [in] image The image to clear
@@ -197,12 +210,33 @@ namespace dxvk {
     /**
      * \brief Clears an active render target
      * 
-     * \param [in] attachment Attachment to clear
-     * \param [in] clearArea Rectangular area to clear
+     * \param [in] imageView Render target view to clear
+     * \param [in] clearArea Image area to clear
+     * \param [in] clearAspects Image aspects to clear
+     * \param [in] clearValue The clear value
      */
     void clearRenderTarget(
-      const VkClearAttachment&  attachment,
-      const VkClearRect&        clearArea);
+      const Rc<DxvkImageView>&    imageView,
+      const VkClearRect&          clearRect,
+            VkImageAspectFlags    clearAspects,
+      const VkClearValue&         clearValue);
+    
+    /**
+     * \brief Clears an image view
+     * 
+     * Can be used to clear sub-regions of storage images
+     * that are not going to be used as render targets.
+     * Implicit format conversion will be applied.
+     * \param [in] imageView The image view
+     * \param [in] offset Offset of the rect to clear
+     * \param [in] extent Extent of the rect to clear
+     * \param [in] value The clear value
+     */
+    void clearImageView(
+      const Rc<DxvkImageView>&    imageView,
+            VkOffset3D            offset,
+            VkExtent3D            extent,
+            VkClearColorValue     value);
     
     /**
      * \brief Copies data from one buffer to another
@@ -566,7 +600,10 @@ namespace dxvk {
     
   private:
     
-    const Rc<DxvkDevice> m_device;
+    const Rc<DxvkDevice>            m_device;
+    const Rc<DxvkPipelineCache>     m_pipeCache;
+    const Rc<DxvkPipelineManager>   m_pipeMgr;
+    const Rc<DxvkMetaClearObjects>  m_metaClear;
     
     Rc<DxvkCommandList> m_cmd;
     DxvkContextFlags    m_flags;
@@ -583,10 +620,15 @@ namespace dxvk {
     
     std::array<DxvkShaderResourceSlot, MaxNumResourceSlots>  m_rc;
     std::array<DxvkDescriptorInfo,     MaxNumActiveBindings> m_descInfos;
-    std::array<VkWriteDescriptorSet,   MaxNumActiveBindings> m_descWrites;
     
     void renderPassBegin();
     void renderPassEnd();
+    
+    void renderPassBindFramebuffer(
+      const Rc<DxvkFramebuffer>& framebuffer);
+    void renderPassUnbindFramebuffer();
+    
+    void unbindComputePipeline();
     
     void updateComputePipeline();
     void updateComputePipelineState();

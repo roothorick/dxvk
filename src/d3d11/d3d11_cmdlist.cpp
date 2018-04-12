@@ -16,11 +16,17 @@ namespace dxvk {
   
   
   HRESULT STDMETHODCALLTYPE D3D11CommandList::QueryInterface(REFIID riid, void** ppvObject) {
-    COM_QUERY_IFACE(riid, ppvObject, IUnknown);
-    COM_QUERY_IFACE(riid, ppvObject, ID3D11DeviceChild);
-    COM_QUERY_IFACE(riid, ppvObject, ID3D11CommandList);
+    *ppvObject = nullptr;
+    
+    if (riid == __uuidof(IUnknown)
+     || riid == __uuidof(ID3D11DeviceChild)
+     || riid == __uuidof(ID3D11CommandList)) {
+      *ppvObject = ref(this);
+      return S_OK;
+    }
     
     Logger::warn("D3D11CommandList::QueryInterface: Unknown interface query");
+    Logger::warn(str::format(riid));
     return E_NOINTERFACE;
   }
   
@@ -35,8 +41,11 @@ namespace dxvk {
   }
   
   
-  void D3D11CommandList::AddChunk(Rc<DxvkCsChunk>&& Chunk) {
+  void D3D11CommandList::AddChunk(
+            Rc<DxvkCsChunk>&&   Chunk,
+            UINT                DrawCount) {
     m_chunks.push_back(std::move(Chunk));
+    m_drawCount += DrawCount;
   }
   
   
@@ -45,10 +54,12 @@ namespace dxvk {
     
     for (auto chunk : m_chunks)
       cmdList->m_chunks.push_back(chunk);
+    
+    cmdList->m_drawCount += m_drawCount;
   }
   
   
-  void D3D11CommandList::EmitToCsThread(const Rc<DxvkCsThread>& CsThread) {
+  void D3D11CommandList::EmitToCsThread(DxvkCsThread* CsThread) {
     for (auto chunk : m_chunks)
       CsThread->dispatchChunk(Rc<DxvkCsChunk>(chunk));
   }

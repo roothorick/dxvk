@@ -6,7 +6,8 @@ namespace dxvk {
   DxgiFactory::DxgiFactory()
   : m_instance(new DxvkInstance()),
     m_adapters(m_instance->enumAdapters()) {
-    
+    for (const auto& adapter : m_adapters)
+      adapter->logAdapterInfo();
   }
   
   
@@ -15,15 +16,19 @@ namespace dxvk {
   }
   
   
-  HRESULT STDMETHODCALLTYPE DxgiFactory::QueryInterface(
-          REFIID  riid,
-          void**  ppvObject) {
-    COM_QUERY_IFACE(riid, ppvObject, IUnknown);
-    COM_QUERY_IFACE(riid, ppvObject, IDXGIObject);
-    COM_QUERY_IFACE(riid, ppvObject, IDXGIFactory);
-    COM_QUERY_IFACE(riid, ppvObject, IDXGIFactory1);
+  HRESULT STDMETHODCALLTYPE DxgiFactory::QueryInterface(REFIID riid, void** ppvObject) {
+    *ppvObject = nullptr;
+    
+    if (riid == __uuidof(IUnknown)
+     || riid == __uuidof(IDXGIObject)
+     || riid == __uuidof(IDXGIFactory)
+     || riid == __uuidof(IDXGIFactory1)) {
+      *ppvObject = ref(this);
+      return S_OK;
+    }
     
     Logger::warn("DxgiFactory::QueryInterface: Unknown interface query");
+    Logger::warn(str::format(riid));
     return E_NOINTERFACE;
   }
   
@@ -31,6 +36,8 @@ namespace dxvk {
   HRESULT STDMETHODCALLTYPE DxgiFactory::GetParent(
           REFIID  riid,
           void**  ppParent) {
+    InitReturnPtr(ppParent);
+    
     Logger::warn("DxgiFactory::GetParent: Unknown interface query");
     return E_NOINTERFACE;
   }
@@ -39,6 +46,11 @@ namespace dxvk {
   HRESULT STDMETHODCALLTYPE DxgiFactory::CreateSoftwareAdapter(
           HMODULE         Module,
           IDXGIAdapter**  ppAdapter) {
+    InitReturnPtr(ppAdapter);
+    
+    if (ppAdapter == nullptr)
+      return DXGI_ERROR_INVALID_CALL;
+    
     Logger::err("DxgiFactory::CreateSoftwareAdapter: Software adapters not supported");
     return DXGI_ERROR_UNSUPPORTED;
   }
@@ -48,8 +60,13 @@ namespace dxvk {
           IUnknown*             pDevice,
           DXGI_SWAP_CHAIN_DESC* pDesc,
           IDXGISwapChain**      ppSwapChain) {
-    if (ppSwapChain == nullptr || pDesc == nullptr)
-      return E_INVALIDARG;
+    InitReturnPtr(ppSwapChain);
+    
+    if (ppSwapChain == nullptr || pDesc == nullptr || pDevice == NULL)
+      return DXGI_ERROR_INVALID_CALL;
+    
+    if (pDesc->OutputWindow == nullptr)
+      return DXGI_ERROR_INVALID_CALL;
     
     try {
       *ppSwapChain = ref(new DxgiSwapChain(this, pDevice, pDesc));
@@ -64,13 +81,14 @@ namespace dxvk {
   HRESULT STDMETHODCALLTYPE DxgiFactory::EnumAdapters(
           UINT            Adapter,
           IDXGIAdapter**  ppAdapter) {
+    InitReturnPtr(ppAdapter);
+    
     if (ppAdapter == nullptr)
       return DXGI_ERROR_INVALID_CALL;
     
     IDXGIAdapter1* handle = nullptr;
     HRESULT hr = this->EnumAdapters1(Adapter, &handle);
-    if (SUCCEEDED(hr))
-      *ppAdapter = handle;
+    *ppAdapter = handle;
     return hr;
   }
   
@@ -78,6 +96,8 @@ namespace dxvk {
   HRESULT STDMETHODCALLTYPE DxgiFactory::EnumAdapters1(
           UINT            Adapter,
           IDXGIAdapter1** ppAdapter) {
+    InitReturnPtr(ppAdapter);
+    
     if (ppAdapter == nullptr)
       return DXGI_ERROR_INVALID_CALL;
     

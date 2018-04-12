@@ -150,7 +150,7 @@ namespace dxvk {
       return (m_mask >> id) & 1;
     }
     
-    uint32_t setCount() const {
+    uint32_t popCount() const {
       const uint8_t n[16] = { 0, 1, 1, 2, 1, 2, 2, 3,
                               1, 2, 2, 3, 2, 3, 3, 4 };
       return n[m_mask & 0xF];
@@ -201,8 +201,6 @@ namespace dxvk {
   
   /**
    * \brief Instruction operand
-   * 
-   * 
    */
   struct DxbcRegister {
     DxbcOperandType       type;
@@ -241,16 +239,80 @@ namespace dxvk {
    * Instruction-specific controls. Usually,
    * only one of the members will be valid.
    */
-  struct DxbcShaderOpcodeControls {
-    DxbcGlobalFlags       globalFlags;
-    DxbcZeroTest          zeroTest;
-    DxbcSyncFlags         syncFlags;
-    DxbcResourceDim       resourceDim;
-    DxbcResinfoType       resinfoType;
-    DxbcInterpolationMode interpolation;
-    DxbcSamplerMode       samplerMode;
-    DxbcPrimitiveTopology primitiveTopology;
-    DxbcPrimitive         primitive;
+  class DxbcShaderOpcodeControls {
+    
+  public:
+    
+    DxbcShaderOpcodeControls()
+    : m_bits(0) { }
+    
+    DxbcShaderOpcodeControls(uint32_t bits)
+    : m_bits(bits) { }
+    
+    DxbcInstructionReturnType returnType() const {
+      return DxbcInstructionReturnType(bit::extract(m_bits, 11, 11));
+    }
+    
+    DxbcGlobalFlags globalFlags() const {
+      return DxbcGlobalFlags(bit::extract(m_bits, 11, 14));
+    }
+    
+    DxbcZeroTest zeroTest() const {
+      return DxbcZeroTest(bit::extract(m_bits, 18, 18));
+    }
+    
+    DxbcSyncFlags syncFlags() const {
+      return DxbcSyncFlags(bit::extract(m_bits, 11, 14));
+    }
+    
+    DxbcResourceDim resourceDim() const {
+      return DxbcResourceDim(bit::extract(m_bits, 11, 15));
+    }
+    
+    DxbcResinfoType resinfoType() const {
+      return DxbcResinfoType(bit::extract(m_bits, 11, 12));
+    }
+    
+    DxbcInterpolationMode interpolation() const {
+      return DxbcInterpolationMode(bit::extract(m_bits, 11, 14));
+    }
+    
+    DxbcSamplerMode samplerMode() const {
+      return DxbcSamplerMode(bit::extract(m_bits, 11, 14));
+    }
+    
+    DxbcPrimitiveTopology primitiveTopology() const {
+      return DxbcPrimitiveTopology(bit::extract(m_bits, 11, 17));
+    }
+    
+    DxbcPrimitive primitive() const {
+      return DxbcPrimitive(bit::extract(m_bits, 11, 16));
+    }
+    
+    DxbcTessDomain tessDomain() const {
+      return DxbcTessDomain(bit::extract(m_bits, 11, 12));
+    }
+    
+    DxbcTessOutputPrimitive tessOutputPrimitive() const {
+      return DxbcTessOutputPrimitive(bit::extract(m_bits, 11, 13));
+    }
+    
+    DxbcTessPartitioning tessPartitioning() const {
+      return DxbcTessPartitioning(bit::extract(m_bits, 11, 13));
+    }
+    
+    DxbcUavFlags uavFlags() const {
+      return DxbcUavFlags(bit::extract(m_bits, 16, 16));
+    }
+    
+    uint32_t controlPointCount() const {
+      return bit::extract(m_bits, 11, 16);
+    }
+    
+  private:
+    
+    uint32_t m_bits;
+    
   };
   
   
@@ -269,9 +331,12 @@ namespace dxvk {
    * \brief Immediate value
    * 
    * Immediate argument represented either
-   * as a 32-bit or 64-bit unsigned integer.
+   * as a 32-bit or 64-bit unsigned integer,
+   * or a 32-bit or 32-bit floating point number.
    */
   union DxbcImmediate {
+    float    f32;
+    double   f64;
     uint32_t u32;
     uint64_t u64;
   };

@@ -1,5 +1,6 @@
 #include "dxgi_device.h"
 #include "dxgi_factory.h"
+#include "dxgi_output.h"
 #include "dxgi_swapchain.h"
 
 namespace dxvk {
@@ -13,7 +14,7 @@ namespace dxvk {
     
     // Retrieve a device pointer that allows us to
     // communicate with the underlying D3D device
-    if (FAILED(pDevice->QueryInterface(__uuidof(IDXGIPresentDevicePrivate),
+    if (FAILED(pDevice->QueryInterface(__uuidof(IDXGIVkPresenter),
         reinterpret_cast<void**>(&m_presentDevice))))
       throw DxvkError("DxgiSwapChain::DxgiSwapChain: Invalid device");
     
@@ -51,6 +52,9 @@ namespace dxvk {
     
     if (FAILED(CreatePresenter()) || FAILED(CreateBackBuffer()))
       throw DxvkError("DxgiSwapChain: Failed to create presenter or back buffer");
+    
+    if (FAILED(SetDefaultGammaControl()))
+      throw DxvkError("DxgiSwapChain: Failed to set up gamma ramp");
   }
   
   
@@ -60,12 +64,18 @@ namespace dxvk {
   
   
   HRESULT STDMETHODCALLTYPE DxgiSwapChain::QueryInterface(REFIID riid, void** ppvObject) {
-    COM_QUERY_IFACE(riid, ppvObject, IUnknown);
-    COM_QUERY_IFACE(riid, ppvObject, IDXGIObject);
-    COM_QUERY_IFACE(riid, ppvObject, IDXGIDeviceSubObject);
-    COM_QUERY_IFACE(riid, ppvObject, IDXGISwapChain);
+    *ppvObject = nullptr;
+    
+    if (riid == __uuidof(IUnknown)
+     || riid == __uuidof(IDXGIObject)
+     || riid == __uuidof(IDXGIDeviceSubObject)
+     || riid == __uuidof(IDXGISwapChain)) {
+      *ppvObject = ref(this);
+      return S_OK;
+    }
     
     Logger::warn("DxgiSwapChain::QueryInterface: Unknown interface query");
+    Logger::warn(str::format(riid));
     return E_NOINTERFACE;
   }
   
@@ -81,6 +91,8 @@ namespace dxvk {
   
   
   HRESULT STDMETHODCALLTYPE DxgiSwapChain::GetBuffer(UINT Buffer, REFIID riid, void** ppSurface) {
+    InitReturnPtr(ppSurface);
+    
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
     
     if (Buffer > 0) {
@@ -93,8 +105,7 @@ namespace dxvk {
   
   
   HRESULT STDMETHODCALLTYPE DxgiSwapChain::GetContainingOutput(IDXGIOutput** ppOutput) {
-    if (ppOutput == nullptr)
-      return DXGI_ERROR_INVALID_CALL;
+    InitReturnPtr(ppOutput);
     
     RECT windowRect = { 0, 0, 0, 0 };
     ::GetWindowRect(m_desc.OutputWindow, &windowRect);
@@ -138,8 +149,12 @@ namespace dxvk {
     if (pFullscreen != nullptr)
       *pFullscreen = !m_desc.Windowed;
     
-    if ((ppTarget != nullptr) && !m_desc.Windowed)
-      hr = this->GetContainingOutput(ppTarget);
+    if (ppTarget != nullptr) {
+      *ppTarget = nullptr;
+      
+      if (!m_desc.Windowed)
+        hr = this->GetContainingOutput(ppTarget);
+    }
     
     return hr;
   }
@@ -254,6 +269,73 @@ namespace dxvk {
   }
   
   
+  HRESULT DxgiSwapChain::GetGammaControl(DXGI_GAMMA_CONTROL* pGammaControl) {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    
+    pGammaControl->Scale = {
+      m_gammaControl.in_factor[0],
+      m_gammaControl.in_factor[1],
+      m_gammaControl.in_factor[2] };
+    
+    pGammaControl->Offset = {
+      m_gammaControl.in_offset[0],
+      m_gammaControl.in_offset[1],
+      m_gammaControl.in_offset[2] };
+    
+    for (uint32_t i = 0; i < DxgiPresenterGammaRamp::CpCount; i++) {
+      pGammaControl->GammaCurve[i] = {
+        m_gammaControl.cp_values[4 * i + 0],
+        m_gammaControl.cp_values[4 * i + 1],
+        m_gammaControl.cp_values[4 * i + 2] };
+    }
+    
+    return S_OK;
+  }
+  
+  
+  HRESULT DxgiSwapChain::SetGammaControl(const DXGI_GAMMA_CONTROL* pGammaControl) {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    m_gammaControl.in_factor[0] = pGammaControl->Scale.Red;
+    m_gammaControl.in_factor[1] = pGammaControl->Scale.Green;
+    m_gammaControl.in_factor[2] = pGammaControl->Scale.Blue;
+    
+    m_gammaControl.in_offset[0] = pGammaControl->Offset.Red;
+    m_gammaControl.in_offset[1] = pGammaControl->Offset.Green;
+    m_gammaControl.in_offset[2] = pGammaControl->Offset.Blue;
+    
+    for (uint32_t i = 0; i < DxgiPresenterGammaRamp::CpCount; i++) {
+      m_gammaControl.cp_values[4 * i + 0] = pGammaControl->GammaCurve[i].Red;
+      m_gammaControl.cp_values[4 * i + 1] = pGammaControl->GammaCurve[i].Green;
+      m_gammaControl.cp_values[4 * i + 2] = pGammaControl->GammaCurve[i].Blue;
+    }
+    
+    m_presenter->setGammaRamp(m_gammaControl);
+    return S_OK;
+  }
+  
+  
+  HRESULT DxgiSwapChain::SetDefaultGammaControl() {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    
+    for (uint32_t i = 0; i < 4; i++) {
+      m_gammaControl.in_factor[i] = 1.0f;
+      m_gammaControl.in_offset[i] = 0.0f;
+    }
+    
+    for (uint32_t i = 0; i < DxgiPresenterGammaRamp::CpCount; i++) {
+      const float value = DxgiPresenterGammaRamp::cpLocation(i);
+      
+      m_gammaControl.cp_values[4 * i + 0] = value;
+      m_gammaControl.cp_values[4 * i + 1] = value;
+      m_gammaControl.cp_values[4 * i + 2] = value;
+      m_gammaControl.cp_values[4 * i + 3] = value;
+    }
+    
+    m_presenter->setGammaRamp(m_gammaControl);
+    return S_OK;
+  }
+  
+  
   HRESULT DxgiSwapChain::CreatePresenter() {
     try {
       m_presenter = new DxgiPresenter(
@@ -268,12 +350,16 @@ namespace dxvk {
   
   
   HRESULT DxgiSwapChain::CreateBackBuffer() {
+    // Figure out sample count based on swap chain description
     VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_1_BIT;
     
     if (FAILED(GetSampleCount(m_desc.SampleDesc.Count, &sampleCount))) {
       Logger::err("DxgiSwapChain: Invalid sample count");
       return E_INVALIDARG;
     }
+    
+    // Destroy previous back buffer before creating a new one
+    m_backBuffer = nullptr;
     
     if (FAILED(m_presentDevice->CreateSwapChainBackBuffer(&m_desc, &m_backBuffer))) {
       Logger::err("DxgiSwapChain: Failed to create back buffer");
@@ -302,7 +388,7 @@ namespace dxvk {
   
   
   HRESULT DxgiSwapChain::EnterFullscreenMode(IDXGIOutput *pTarget) {
-    Com<IDXGIOutput> output = pTarget;
+    Com<IDXGIOutput> output = static_cast<DxgiOutput*>(pTarget);
     
     if (output == nullptr) {
       if (FAILED(GetContainingOutput(&output))) {
@@ -339,7 +425,6 @@ namespace dxvk {
     ::SetWindowPos(m_desc.OutputWindow, HWND_TOPMOST,
       rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
       SWP_FRAMECHANGED | SWP_SHOWWINDOW | SWP_NOACTIVATE);
-    
     return S_OK;
   }
   

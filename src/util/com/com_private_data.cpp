@@ -23,7 +23,8 @@ namespace dxvk {
     const IUnknown* iface)
   : m_guid  (guid),
     m_iface (const_cast<IUnknown*>(iface)) {
-    m_iface->AddRef();
+    if (m_iface != nullptr)
+      m_iface->AddRef();
   }
   
   
@@ -60,13 +61,15 @@ namespace dxvk {
   
   
   HRESULT ComPrivateDataEntry::get(UINT& size, void* data) const {
-    if (size != 0 && data == nullptr)
-      return DXGI_ERROR_INVALID_CALL;
-    
     const UINT minSize = m_iface != nullptr
       ? sizeof(IUnknown*)
       : m_size;
     
+    if (data == nullptr) {
+      size = minSize;
+      return S_OK;
+    }
+
     const HRESULT result = size < minSize
       ? DXGI_ERROR_MORE_DATA
       : S_OK;
@@ -97,6 +100,15 @@ namespace dxvk {
           REFGUID   guid,
           UINT      size,
     const void*     data) {
+    if (data == nullptr) {
+      for (auto it = m_entries.begin(); it != m_entries.end(); ++it) {
+        if (it->hasGuid(guid)) {
+          m_entries.erase(it);
+          return S_OK;
+        }
+      }
+      return S_FALSE;
+    }
     this->insertEntry(ComPrivateDataEntry(guid, size, data));
     return S_OK;
   }
@@ -115,12 +127,14 @@ namespace dxvk {
           UINT*     size,
           void*     data) {
     if (size == nullptr)
-      return DXGI_ERROR_INVALID_CALL;
+      return E_INVALIDARG;
     
     auto entry = this->findEntry(guid);
     
-    if (entry == nullptr)
+    if (entry == nullptr) {
+      *size = 0;
       return DXGI_ERROR_NOT_FOUND;
+    }
     
     return entry->get(*size, data);
   }

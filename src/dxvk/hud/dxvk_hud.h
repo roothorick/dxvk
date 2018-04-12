@@ -4,12 +4,18 @@
 
 #include "../util/util_env.h"
 
+#include "dxvk_hud_config.h"
 #include "dxvk_hud_devinfo.h"
 #include "dxvk_hud_fps.h"
 #include "dxvk_hud_text.h"
+#include "dxvk_hud_stats.h"
 
 namespace dxvk::hud {
   
+  /**
+   * \brief HUD uniform data
+   * Shader data for the HUD.
+   */
   struct HudUniformData {
     VkExtent2D surfaceSize;
   };
@@ -24,8 +30,9 @@ namespace dxvk::hud {
     
   public:
     
-    explicit Hud(
-      const Rc<DxvkDevice>& device);
+    Hud(
+      const Rc<DxvkDevice>& device,
+      const HudConfig&      config);
     
     ~Hud();
     
@@ -62,6 +69,8 @@ namespace dxvk::hud {
     
   private:
     
+    const HudConfig       m_config;
+    
     const Rc<DxvkDevice>  m_device;
     const Rc<DxvkContext> m_context;
     
@@ -75,6 +84,7 @@ namespace dxvk::hud {
     
     HudDeviceInfo         m_hudDeviceInfo;
     HudFps                m_hudFps;
+    HudStats              m_hudStats;
     
     void renderText();
     

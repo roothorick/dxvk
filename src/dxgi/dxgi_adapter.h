@@ -4,6 +4,7 @@
 #include <memory>
 #include <unordered_map>
 #include <vector>
+#include <string>
 
 #include <dxvk_adapter.h>
 
@@ -15,7 +16,7 @@ namespace dxvk {
   class DxgiFactory;
   class DxgiOutput;
   
-  class DxgiAdapter : public DxgiObject<IDXGIAdapterPrivate> {
+  class DxgiAdapter : public DxgiObject<IDXGIVkAdapter> {
     
   public:
     
@@ -47,6 +48,11 @@ namespace dxvk {
             DXGI_ADAPTER_DESC1 *pDesc) final;
     
     Rc<DxvkAdapter> STDMETHODCALLTYPE GetDXVKAdapter() final;
+    
+    HRESULT STDMETHODCALLTYPE CreateDevice(
+            IDXGIObject*              pContainer,
+      const VkPhysicalDeviceFeatures* pFeatures,
+            IDXGIVkDevice**           ppDevice) final;
     
     DxgiFormatInfo STDMETHODCALLTYPE LookupFormat(
             DXGI_FORMAT format, DxgiFormatMode mode) final;
@@ -92,10 +98,6 @@ namespace dxvk {
             VkImageAspectFlags                srvAspect);
     
     void SetupFormatTable();
-    
-    bool HasFormatSupport(
-            VkFormat                          format,
-            VkFormatFeatureFlags              features) const;
     
   };
 

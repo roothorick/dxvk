@@ -25,11 +25,17 @@ namespace dxvk {
   
   
   HRESULT STDMETHODCALLTYPE D3D11DepthStencilState::QueryInterface(REFIID riid, void** ppvObject) {
-    COM_QUERY_IFACE(riid, ppvObject, IUnknown);
-    COM_QUERY_IFACE(riid, ppvObject, ID3D11DeviceChild);
-    COM_QUERY_IFACE(riid, ppvObject, ID3D11DepthStencilState);
+    *ppvObject = nullptr;
+    
+    if (riid == __uuidof(IUnknown)
+     || riid == __uuidof(ID3D11DeviceChild)
+     || riid == __uuidof(ID3D11DepthStencilState)) {
+      *ppvObject = ref(this);
+      return S_OK;
+    }
     
     Logger::warn("D3D11DepthStencilState::QueryInterface: Unknown interface query");
+    Logger::warn(str::format(riid));
     return E_NOINTERFACE;
   }
   
@@ -47,6 +53,33 @@ namespace dxvk {
   void D3D11DepthStencilState::BindToContext(
     const Rc<DxvkContext>&  ctx) {
     ctx->setDepthStencilState(m_state);
+  }
+  
+  
+  D3D11_DEPTH_STENCIL_DESC D3D11DepthStencilState::DefaultDesc() {
+    D3D11_DEPTH_STENCILOP_DESC stencilOp;
+    stencilOp.StencilFunc        = D3D11_COMPARISON_ALWAYS;
+    stencilOp.StencilDepthFailOp = D3D11_STENCIL_OP_KEEP;
+    stencilOp.StencilPassOp      = D3D11_STENCIL_OP_KEEP;
+    stencilOp.StencilFailOp      = D3D11_STENCIL_OP_KEEP;
+    
+    D3D11_DEPTH_STENCIL_DESC dstDesc;
+    dstDesc.DepthEnable      = TRUE;
+    dstDesc.DepthWriteMask   = D3D11_DEPTH_WRITE_MASK_ALL;
+    dstDesc.DepthFunc        = D3D11_COMPARISON_LESS;
+    dstDesc.StencilEnable    = FALSE;
+    dstDesc.StencilReadMask  = D3D11_DEFAULT_STENCIL_READ_MASK;
+    dstDesc.StencilWriteMask = D3D11_DEFAULT_STENCIL_WRITE_MASK;
+    dstDesc.FrontFace        = stencilOp;
+    dstDesc.BackFace         = stencilOp;
+    return dstDesc;
+  }
+  
+  
+  HRESULT D3D11DepthStencilState::NormalizeDesc(D3D11_DEPTH_STENCIL_DESC* pDesc) {
+    // TODO validate
+    // TODO clear unused values
+    return S_OK;
   }
   
   

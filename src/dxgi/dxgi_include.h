@@ -1,6 +1,11 @@
 #pragma once
 
-#define DLLEXPORT __declspec(dllexport)
+//for some reason we need to specify __declspec(dllexport) for MinGW
+#ifdef _MSC_VER
+  #define DLLEXPORT
+#else
+  #define DLLEXPORT __declspec(dllexport)
+#endif
 
 #include "../util/com/com_guid.h"
 #include "../util/com/com_object.h"
@@ -14,6 +19,7 @@
 
 #include "../util/util_enum.h"
 #include "../util/util_error.h"
+#include "../util/util_flags.h"
 #include "../util/util_math.h"
 #include "../util/util_string.h"
 

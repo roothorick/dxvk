@@ -2,6 +2,7 @@
 #include <cstring>
 
 #include "dxgi_adapter.h"
+#include "dxgi_device.h"
 #include "dxgi_enums.h"
 #include "dxgi_factory.h"
 #include "dxgi_output.h"
@@ -24,23 +25,25 @@ namespace dxvk {
   }
   
   
-  HRESULT STDMETHODCALLTYPE DxgiAdapter::QueryInterface(
-          REFIID riid,
-          void **ppvObject) {
-    COM_QUERY_IFACE(riid, ppvObject, IUnknown);
-    COM_QUERY_IFACE(riid, ppvObject, IDXGIObject);
-    COM_QUERY_IFACE(riid, ppvObject, IDXGIAdapter);
-    COM_QUERY_IFACE(riid, ppvObject, IDXGIAdapter1);
-    COM_QUERY_IFACE(riid, ppvObject, IDXGIAdapterPrivate);
+  HRESULT STDMETHODCALLTYPE DxgiAdapter::QueryInterface(REFIID riid, void** ppvObject) {
+    *ppvObject = nullptr;
+    
+    if (riid == __uuidof(IUnknown)
+     || riid == __uuidof(IDXGIObject)
+     || riid == __uuidof(IDXGIAdapter)
+     || riid == __uuidof(IDXGIAdapter1)
+     || riid == __uuidof(IDXGIVkAdapter)) {
+      *ppvObject = ref(this);
+      return S_OK;
+    }
     
     Logger::warn("DxgiAdapter::QueryInterface: Unknown interface query");
+    Logger::warn(str::format(riid));
     return E_NOINTERFACE;
   }
   
   
-  HRESULT STDMETHODCALLTYPE DxgiAdapter::GetParent(
-          REFIID riid,
-          void   **ppParent) {
+  HRESULT STDMETHODCALLTYPE DxgiAdapter::GetParent(REFIID riid, void** ppParent) {
     return m_factory->QueryInterface(riid, ppParent);
   }
   
@@ -56,11 +59,15 @@ namespace dxvk {
   HRESULT STDMETHODCALLTYPE DxgiAdapter::EnumOutputs(
           UINT        Output,
           IDXGIOutput **ppOutput) {
+    InitReturnPtr(ppOutput);
+    
     if (ppOutput == nullptr)
       return DXGI_ERROR_INVALID_CALL;
     
-    if (Output > 0)
+    if (Output > 0) {
+      *ppOutput = nullptr;
       return DXGI_ERROR_NOT_FOUND;
+    }
     
     // TODO support multiple monitors
     HMONITOR monitor = ::MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY);
@@ -70,6 +77,9 @@ namespace dxvk {
   
   
   HRESULT STDMETHODCALLTYPE DxgiAdapter::GetDesc(DXGI_ADAPTER_DESC* pDesc) {
+    if (pDesc == nullptr)
+      return DXGI_ERROR_INVALID_CALL;
+
     DXGI_ADAPTER_DESC1 desc1;
     HRESULT hr = this->GetDesc1(&desc1);
     
@@ -97,11 +107,25 @@ namespace dxvk {
     if (pDesc == nullptr)
       return DXGI_ERROR_INVALID_CALL;
     
-    const auto deviceProp = m_adapter->deviceProperties();
-    const auto memoryProp = m_adapter->memoryProperties();
+    auto deviceProp = m_adapter->deviceProperties();
+    auto memoryProp = m_adapter->memoryProperties();
+    
+    // Custom Vendor ID
+    const std::string customVendorID = env::getEnvVar(L"DXVK_CUSTOM_VENDOR_ID");
+    const std::string customDeviceID = env::getEnvVar(L"DXVK_CUSTOM_DEVICE_ID");
+    
+    if (!customVendorID.empty()) {
+      Logger::info("Using Custom PCI Vendor ID " + customVendorID + " instead of " + str::format(std::hex, deviceProp.vendorID));
+      deviceProp.vendorID = std::stoul(customVendorID, nullptr, 16);
+    }
+    
+    if (!customDeviceID.empty()) {
+      Logger::info("Using Custom PCI Device ID " + customDeviceID + " instead of " + str::format(std::hex, deviceProp.deviceID));
+      deviceProp.deviceID = std::stoul(customDeviceID, nullptr, 16);  
+    }
     
     std::memset(pDesc->Description, 0, sizeof(pDesc->Description));
-    std::mbstowcs(pDesc->Description, deviceProp.deviceName, _countof(pDesc->Description) - 1);
+    std::mbstowcs(pDesc->Description, deviceProp.deviceName, std::size(pDesc->Description) - 1);
     
     VkDeviceSize deviceMemory = 0;
     VkDeviceSize sharedMemory = 0;
@@ -133,6 +157,22 @@ namespace dxvk {
   }
   
   
+  HRESULT STDMETHODCALLTYPE DxgiAdapter::CreateDevice(
+          IDXGIObject*              pContainer,
+    const VkPhysicalDeviceFeatures* pFeatures,
+          IDXGIVkDevice**           ppDevice) {
+    InitReturnPtr(ppDevice);
+    
+    try {
+      *ppDevice = new dxvk::DxgiDevice(pContainer, this, pFeatures);
+      return S_OK;
+    } catch (const dxvk::DxvkError& e) {
+      dxvk::Logger::err(e.message());
+      return DXGI_ERROR_UNSUPPORTED;
+    }
+  }
+  
+  
   DxgiFormatInfo STDMETHODCALLTYPE DxgiAdapter::LookupFormat(DXGI_FORMAT format, DxgiFormatMode mode) {
     // If the mode is 'Any', probe color formats first
     if (mode != DxgiFormatMode::Depth) {
@@ -156,16 +196,18 @@ namespace dxvk {
   HRESULT DxgiAdapter::GetOutputFromMonitor(
           HMONITOR              Monitor,
           IDXGIOutput**         ppOutput) {
-    Com<IDXGIOutput> output;
+    if (ppOutput == nullptr)
+      return DXGI_ERROR_INVALID_CALL;
     
-    for (uint32_t i = 0; SUCCEEDED(EnumOutputs(i, &output)); i++) {
+    for (uint32_t i = 0; SUCCEEDED(EnumOutputs(i, ppOutput)); i++) {
       DXGI_OUTPUT_DESC outputDesc;
-      output->GetDesc(&outputDesc);
+      (*ppOutput)->GetDesc(&outputDesc);
       
-      if (outputDesc.Monitor == Monitor) {
-        *ppOutput = output.ref();
+      if (outputDesc.Monitor == Monitor)
         return S_OK;
-      }
+      
+      (*ppOutput)->Release();
+      (*ppOutput) = nullptr;
     }
     
     // No such output found
@@ -262,9 +304,9 @@ namespace dxvk {
     AddColorFormat        (DXGI_FORMAT_R32G32_UINT,                 VK_FORMAT_R32G32_UINT);
     AddColorFormat        (DXGI_FORMAT_R32G32_SINT,                 VK_FORMAT_R32G32_SINT);
     
-    AddColorFormatTypeless(DXGI_FORMAT_R10G10B10A2_TYPELESS,        VK_FORMAT_A2R10G10B10_UINT_PACK32);
-    AddColorFormat        (DXGI_FORMAT_R10G10B10A2_UINT,            VK_FORMAT_A2R10G10B10_UINT_PACK32);
-    AddColorFormat        (DXGI_FORMAT_R10G10B10A2_UNORM,           VK_FORMAT_A2R10G10B10_UNORM_PACK32);
+    AddColorFormatTypeless(DXGI_FORMAT_R10G10B10A2_TYPELESS,        VK_FORMAT_A2B10G10R10_UINT_PACK32);
+    AddColorFormat        (DXGI_FORMAT_R10G10B10A2_UINT,            VK_FORMAT_A2B10G10R10_UINT_PACK32);
+    AddColorFormat        (DXGI_FORMAT_R10G10B10A2_UNORM,           VK_FORMAT_A2B10G10R10_UNORM_PACK32);
     
     AddColorFormat        (DXGI_FORMAT_R11G11B10_FLOAT,             VK_FORMAT_B10G11R11_UFLOAT_PACK32);
     
@@ -313,11 +355,17 @@ namespace dxvk {
 //     AddColorFormat(DXGI_FORMAT_R1_UNORM,                    VK_FORMAT_UNDEFINED);
     
     AddColorFormat        (DXGI_FORMAT_R9G9B9E5_SHAREDEXP,          VK_FORMAT_E5B9G9R9_UFLOAT_PACK32);
-//     AddColorFormat(DXGI_FORMAT_R8G8_B8G8_UNORM,             VK_FORMAT_UNDEFINED);
-//     AddColorFormat(DXGI_FORMAT_G8R8_G8B8_UNORM,             VK_FORMAT_UNDEFINED);
     
-    AddColorFormat        (DXGI_FORMAT_B5G6R5_UNORM,                VK_FORMAT_B5G6R5_UNORM_PACK16);
-    AddColorFormat        (DXGI_FORMAT_B5G5R5A1_UNORM,              VK_FORMAT_B5G5R5A1_UNORM_PACK16);
+    AddColorFormat        (DXGI_FORMAT_R8G8_B8G8_UNORM,             VK_FORMAT_B8G8R8G8_422_UNORM_KHR,
+      { VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_G,
+        VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_ONE });
+    
+    AddColorFormat        (DXGI_FORMAT_G8R8_G8B8_UNORM,             VK_FORMAT_G8B8G8R8_422_UNORM_KHR,
+      { VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_G,
+        VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_ONE });
+    
+    AddColorFormat        (DXGI_FORMAT_B5G6R5_UNORM,                VK_FORMAT_R5G6B5_UNORM_PACK16);
+    AddColorFormat        (DXGI_FORMAT_B5G5R5A1_UNORM,              VK_FORMAT_A1R5G5B5_UNORM_PACK16);
     
     AddColorFormatTypeless(DXGI_FORMAT_B8G8R8A8_TYPELESS,           VK_FORMAT_B8G8R8A8_UNORM);
     AddColorFormat        (DXGI_FORMAT_B8G8R8A8_UNORM,              VK_FORMAT_B8G8R8A8_UNORM);
@@ -335,7 +383,9 @@ namespace dxvk {
     
 //     AddColorFormat(DXGI_FORMAT_R10G10B10_XR_BIAS_A2_UNORM,  VK_FORMAT_UNDEFINED);
     
-    AddColorFormat        (DXGI_FORMAT_B4G4R4A4_UNORM,              VK_FORMAT_B4G4R4A4_UNORM_PACK16);
+    AddColorFormat        (DXGI_FORMAT_B4G4R4A4_UNORM,              VK_FORMAT_B4G4R4A4_UNORM_PACK16,
+      { VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_R,
+        VK_COMPONENT_SWIZZLE_A, VK_COMPONENT_SWIZZLE_B });
 
     /***********************************************************************************/
     /*                           B L O C K     F O R M A T S                           */
@@ -383,27 +433,11 @@ namespace dxvk {
     AddDepthFormat        (DXGI_FORMAT_X32_TYPELESS_G8X24_UINT,     VK_FORMAT_D32_SFLOAT_S8_UINT, VK_IMAGE_ASPECT_STENCIL_BIT);
     
     // Vulkan implementations are not required to support 24-bit depth buffers natively
-    // and AMD decided to not implement them, so we'll fall back to 32-bit depth buffers
-    if (HasFormatSupport(VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)) {
-      AddDepthFormatTypeless(DXGI_FORMAT_R24G8_TYPELESS,            VK_FORMAT_D24_UNORM_S8_UINT);
-      AddDepthFormat        (DXGI_FORMAT_D24_UNORM_S8_UINT,         VK_FORMAT_D24_UNORM_S8_UINT, 0);
-      AddDepthFormat        (DXGI_FORMAT_R24_UNORM_X8_TYPELESS,     VK_FORMAT_D24_UNORM_S8_UINT, VK_IMAGE_ASPECT_DEPTH_BIT);
-      AddDepthFormat        (DXGI_FORMAT_X24_TYPELESS_G8_UINT,      VK_FORMAT_D24_UNORM_S8_UINT, VK_IMAGE_ASPECT_STENCIL_BIT);
-    } else {
-      Logger::warn("DxgiAdapter: DXGI_FORMAT_D24_UNORM_S8_UINT -> VK_FORMAT_D32_SFLOAT_S8_UINT");
-      AddDepthFormatTypeless(DXGI_FORMAT_R24G8_TYPELESS,            VK_FORMAT_D32_SFLOAT_S8_UINT);
-      AddDepthFormat        (DXGI_FORMAT_R24_UNORM_X8_TYPELESS,     VK_FORMAT_D32_SFLOAT_S8_UINT, VK_IMAGE_ASPECT_DEPTH_BIT);
-      AddDepthFormat        (DXGI_FORMAT_X24_TYPELESS_G8_UINT,      VK_FORMAT_D32_SFLOAT_S8_UINT, VK_IMAGE_ASPECT_STENCIL_BIT);
-      AddDepthFormat        (DXGI_FORMAT_D24_UNORM_S8_UINT,         VK_FORMAT_D32_SFLOAT_S8_UINT, 0);
-    }
-  }
-  
-  
-  bool DxgiAdapter::HasFormatSupport(
-          VkFormat                          format,
-          VkFormatFeatureFlags              features) const {
-    const VkFormatProperties info = m_adapter->formatProperties(format);
-    return ((info.optimalTilingFeatures | info.bufferFeatures) & features) == features;
+    // and support is generally worse than for 32-bit depth buffers, so we won't use them
+    AddDepthFormatTypeless(DXGI_FORMAT_R24G8_TYPELESS,              VK_FORMAT_D32_SFLOAT_S8_UINT);
+    AddDepthFormat        (DXGI_FORMAT_R24_UNORM_X8_TYPELESS,       VK_FORMAT_D32_SFLOAT_S8_UINT, VK_IMAGE_ASPECT_DEPTH_BIT);
+    AddDepthFormat        (DXGI_FORMAT_X24_TYPELESS_G8_UINT,        VK_FORMAT_D32_SFLOAT_S8_UINT, VK_IMAGE_ASPECT_STENCIL_BIT);
+    AddDepthFormat        (DXGI_FORMAT_D24_UNORM_S8_UINT,           VK_FORMAT_D32_SFLOAT_S8_UINT, 0);
   }
   
 }

@@ -12,16 +12,12 @@ namespace dxvk {
     m_vkd             (vkd),
     m_extensions      (extensions),
     m_features        (features),
-    m_memory          (new DxvkMemoryAllocator(adapter, vkd)),
-    m_renderPassPool  (new DxvkRenderPassPool (vkd)),
-    m_pipelineCache   (new DxvkPipelineCache  (vkd)),
-    m_pipelineManager (new DxvkPipelineManager(this)),
+    m_memory          (new DxvkMemoryAllocator  (adapter, vkd)),
+    m_renderPassPool  (new DxvkRenderPassPool   (vkd)),
+    m_pipelineCache   (new DxvkPipelineCache    (vkd)),
+    m_metaClearObjects(new DxvkMetaClearObjects (vkd)),
     m_unboundResources(this),
     m_submissionQueue (this) {
-    m_options.adjustAppOptions(env::getExeName());
-    m_options.adjustDeviceOptions(m_adapter);
-    m_options.logOptions();
-    
     m_vkd->vkGetDeviceQueue(m_vkd->device(),
       m_adapter->graphicsQueueFamily(), 0,
       &m_graphicsQueue);
@@ -103,7 +99,9 @@ namespace dxvk {
   
   
   Rc<DxvkContext> DxvkDevice::createContext() {
-    return new DxvkContext(this);
+    return new DxvkContext(this,
+      m_pipelineCache,
+      m_metaClearObjects);
   }
   
   
@@ -118,7 +116,6 @@ namespace dxvk {
   Rc<DxvkBuffer> DxvkDevice::createBuffer(
     const DxvkBufferCreateInfo& createInfo,
           VkMemoryPropertyFlags memoryType) {
-    m_statCounters.increment(DxvkStat::ResBufferCreations, 1);
     return new DxvkBuffer(this, createInfo, memoryType);
   }
   
@@ -133,7 +130,6 @@ namespace dxvk {
   Rc<DxvkImage> DxvkDevice::createImage(
     const DxvkImageCreateInfo&  createInfo,
           VkMemoryPropertyFlags memoryType) {
-    m_statCounters.increment(DxvkStat::ResImageCreations, 1);
     return new DxvkImage(m_vkd, createInfo, *m_memory, memoryType);
   }
   
@@ -174,28 +170,23 @@ namespace dxvk {
   }
   
   
-  Rc<DxvkComputePipeline> DxvkDevice::createComputePipeline(
-    const Rc<DxvkShader>&           cs) {
-    return m_pipelineManager->createComputePipeline(
-      m_pipelineCache, cs);
-  }
-  
-  
-  Rc<DxvkGraphicsPipeline> DxvkDevice::createGraphicsPipeline(
-    const Rc<DxvkShader>&           vs,
-    const Rc<DxvkShader>&           tcs,
-    const Rc<DxvkShader>&           tes,
-    const Rc<DxvkShader>&           gs,
-    const Rc<DxvkShader>&           fs) {
-    return m_pipelineManager->createGraphicsPipeline(
-      m_pipelineCache, vs, tcs, tes, gs, fs);
-  }
-  
-  
   Rc<DxvkSwapchain> DxvkDevice::createSwapchain(
     const Rc<DxvkSurface>&          surface,
     const DxvkSwapchainProperties&  properties) {
     return new DxvkSwapchain(this, surface, properties);
+  }
+  
+  
+  DxvkStatCounters DxvkDevice::getStatCounters() {
+    DxvkMemoryStats mem = m_memory->getMemoryStats();
+    
+    DxvkStatCounters result;
+    result.setCtr(DxvkStatCounter::MemoryAllocated, mem.memoryAllocated);
+    result.setCtr(DxvkStatCounter::MemoryUsed,      mem.memoryUsed);
+    
+    std::lock_guard<sync::Spinlock> lock(m_statLock);
+    result.merge(m_statCounters);
+    return result;
   }
   
   
@@ -206,19 +197,20 @@ namespace dxvk {
   
   VkResult DxvkDevice::presentSwapImage(
     const VkPresentInfoKHR&         presentInfo) {
-    m_statCounters.increment(DxvkStat::DevQueuePresents, 1);
-    
-    std::lock_guard<std::mutex> lock(m_submissionLock);
-    return m_vkd->vkQueuePresentKHR(m_presentQueue, &presentInfo);
+    { // Queue submissions are not thread safe
+      std::lock_guard<std::mutex> queueLock(m_submissionLock);
+      std::lock_guard<sync::Spinlock> statLock(m_statLock);
+      
+      m_statCounters.addCtr(DxvkStatCounter::QueuePresentCount, 1);
+      return m_vkd->vkQueuePresentKHR(m_presentQueue, &presentInfo);
+    }
   }
   
   
-  Rc<DxvkFence> DxvkDevice::submitCommandList(
+  void DxvkDevice::submitCommandList(
     const Rc<DxvkCommandList>&      commandList,
     const Rc<DxvkSemaphore>&        waitSync,
     const Rc<DxvkSemaphore>&        wakeSync) {
-    Rc<DxvkFence> fence = new DxvkFence(m_vkd);
-    
     VkSemaphore waitSemaphore = VK_NULL_HANDLE;
     VkSemaphore wakeSemaphore = VK_NULL_HANDLE;
     
@@ -232,24 +224,33 @@ namespace dxvk {
       commandList->trackResource(wakeSync);
     }
     
+    VkResult status;
+    
     { // Queue submissions are not thread safe
-      std::lock_guard<std::mutex> lock(m_submissionLock);
-      commandList->submit(m_graphicsQueue,
-        waitSemaphore, wakeSemaphore, fence->handle());
+      std::lock_guard<std::mutex> queueLock(m_submissionLock);
+      std::lock_guard<sync::Spinlock> statLock(m_statLock);
+      
+      m_statCounters.merge(commandList->statCounters());
+      m_statCounters.addCtr(DxvkStatCounter::QueueSubmitCount, 1);
+      
+      status = commandList->submit(
+        m_graphicsQueue, waitSemaphore, wakeSemaphore);
     }
     
-    // Add this to the set of running submissions
-    m_submissionQueue.submit(fence, commandList);
-    m_statCounters.increment(DxvkStat::DevQueueSubmissions, 1);
-    return fence;
+    if (status == VK_SUCCESS) {
+      // Add this to the set of running submissions
+      m_submissionQueue.submit(commandList);
+    } else {
+      Logger::err(str::format(
+        "DxvkDevice: Command buffer submission failed: ",
+        status));
+    }
   }
   
   
   void DxvkDevice::waitForIdle() {
-    m_statCounters.increment(DxvkStat::DevSynchronizations, 1);
-    
     if (m_vkd->vkDeviceWaitIdle(m_vkd->device()) != VK_SUCCESS)
-      throw DxvkError("DxvkDevice::waitForIdle: Operation failed");
+      Logger::err("DxvkDevice: waitForIdle: Operation failed");
   }
   
   

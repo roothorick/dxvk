@@ -2,38 +2,31 @@
 
 namespace dxvk {
   
-  DxvkStatCounters:: DxvkStatCounters() { }
-  DxvkStatCounters::~DxvkStatCounters() { }
-  
-  
-  DxvkStatCounters::DxvkStatCounters(const DxvkStatCounters& other) {
-    for (size_t i = 0; i < m_counters.size(); i++)
-      m_counters[i] = other.m_counters[i].load();
+  DxvkStatCounters::DxvkStatCounters() {
+    this->reset();
   }
   
   
-  DxvkStatCounters& DxvkStatCounters::operator = (const DxvkStatCounters& other) {
-    for (size_t i = 0; i < m_counters.size(); i++)
-      m_counters[i] = other.m_counters[i].load();
-    return *this;
+  DxvkStatCounters::~DxvkStatCounters() {
+    
   }
   
   
-  DxvkStatCounters DxvkStatCounters::delta(const DxvkStatCounters& oldState) const {
+  DxvkStatCounters DxvkStatCounters::diff(const DxvkStatCounters& other) const {
     DxvkStatCounters result;
     for (size_t i = 0; i < m_counters.size(); i++)
-      result.m_counters[i] = m_counters[i] - oldState.m_counters[i];;
+      result.m_counters[i] = m_counters[i] - other.m_counters[i];
     return result;
   }
   
   
-  void DxvkStatCounters::addCounters(const DxvkStatCounters& counters) {
+  void DxvkStatCounters::merge(const DxvkStatCounters& other) {
     for (size_t i = 0; i < m_counters.size(); i++)
-      m_counters[i] += counters.m_counters[i];
+      m_counters[i] += other.m_counters[i];
   }
   
   
-  void DxvkStatCounters::clear() {
+  void DxvkStatCounters::reset() {
     for (size_t i = 0; i < m_counters.size(); i++)
       m_counters[i] = 0;
   }

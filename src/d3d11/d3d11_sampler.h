@@ -12,10 +12,11 @@ namespace dxvk {
     
   public:
     
+    using DescType = D3D11_SAMPLER_DESC;
+    
     D3D11SamplerState(
             D3D11Device*        device,
-      const D3D11_SAMPLER_DESC& desc,
-      const Rc<DxvkSampler>&    sampler);
+      const D3D11_SAMPLER_DESC& desc);
     ~D3D11SamplerState();
     
     HRESULT STDMETHODCALLTYPE QueryInterface(
@@ -32,9 +33,12 @@ namespace dxvk {
       return m_sampler;
     }
     
+    static HRESULT NormalizeDesc(
+            D3D11_SAMPLER_DESC* pDesc);
+    
   private:
     
-    Com<D3D11Device>   m_device;
+    D3D11Device* const m_device;
     D3D11_SAMPLER_DESC m_desc;
     Rc<DxvkSampler>    m_sampler;
     

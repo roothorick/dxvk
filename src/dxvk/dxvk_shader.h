@@ -99,6 +99,18 @@ namespace dxvk {
     ~DxvkShader();
     
     /**
+     * \brief Checks whether a capability is enabled
+     * 
+     * If the shader contains an \c OpCapability
+     * instruction with the given capability, it
+     * is considered enabled. This may be required
+     * to correctly set up certain pipeline states.
+     * \param [in] cap The capability to check
+     * \returns \c true if \c cap is enabled
+     */
+    bool hasCapability(spv::Capability cap);
+    
+    /**
      * \brief Adds resource slots definitions to a mapping
      * 
      * Used to generate the exact descriptor set layout when
@@ -132,24 +144,12 @@ namespace dxvk {
     }
     
     /**
-     * \brief Optimizes SPIR-V shader code
-     * \returns \c true on success
-     */
-    bool optimize();
-    
-    /**
-     * \brief Validates SPIR-V shader code
-     * \returns \c true if the code is valid
-     */
-    bool validate() const;
-    
-    /**
      * \brief Dumps SPIR-V shader
      * 
      * Can be used to store the SPIR-V code in a file.
      * \param [in] outputStream Stream to write to 
      */
-    void dump(std::ostream&& outputStream) const;
+    void dump(std::ostream& outputStream) const;
     
     /**
      * \brief Reads SPIR-V shader
@@ -157,7 +157,7 @@ namespace dxvk {
      * Can be used to replace the compiled SPIR-V code.
      * \param [in] inputStream Stream to read from
      */
-    void read(std::istream&& inputStream);
+    void read(std::istream& inputStream);
     
     /**
      * \brief Sets the shader's debug name
@@ -176,6 +176,7 @@ namespace dxvk {
     SpirvCodeBuffer       m_code;
     
     std::vector<DxvkResourceSlot> m_slots;
+    std::vector<size_t>           m_idOffsets;
     DxvkInterfaceSlots            m_interface;
     std::string                   m_debugName;
     

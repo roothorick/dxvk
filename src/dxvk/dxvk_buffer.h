@@ -1,5 +1,8 @@
 #pragma once
 
+#include <mutex>
+#include <vector>
+
 #include "dxvk_buffer_res.h"
 
 namespace dxvk {
@@ -12,7 +15,7 @@ namespace dxvk {
    * if allocated on an appropriate memory type.
    */
   class DxvkBuffer : public RcObject {
-    
+    friend class DxvkBufferView;
   public:
     
     DxvkBuffer(
@@ -106,113 +109,52 @@ namespace dxvk {
      * not call this directly as this is called implicitly
      * by the context's \c invalidateBuffer method.
      * \param [in] slice The new backing resource
+     * \returns Previous buffer slice
      */
-    void rename(
+    DxvkPhysicalBufferSlice rename(
       const DxvkPhysicalBufferSlice& slice);
     
     /**
      * \brief Allocates new physical resource
-     * 
-     * This method must not be called from multiple threads
-     * simultaneously, but it can be called in parallel with
-     * \ref rename and other methods of this class.
      * \returns The new backing buffer slice
      */
     DxvkPhysicalBufferSlice allocPhysicalSlice();
+    
+    /**
+     * \brief Frees a physical buffer slice
+     * 
+     * Marks the slice as free so that it can be used for
+     * subsequent allocations. Called automatically when
+     * the slice is no longer needed by the GPU.
+     * \param [in] slice The buffer slice to free
+     */
+    void freePhysicalSlice(
+      const DxvkPhysicalBufferSlice& slice);
     
   private:
     
     DxvkDevice*             m_device;
     DxvkBufferCreateInfo    m_info;
     VkMemoryPropertyFlags   m_memFlags;
-    DxvkPhysicalBufferSlice m_physSlice;
     
-    // TODO maybe align this to a cache line in order
-    // to avoid false sharing once CSMT is implemented
-    VkDeviceSize m_physBufferId     = 0;
-    VkDeviceSize m_physSliceId      = 0;
-    VkDeviceSize m_physSliceCount   = 1;
+    DxvkPhysicalBufferSlice m_physSlice;
+    uint32_t                m_revision = 0;
+    
+    std::mutex m_freeMutex;
+    std::mutex m_swapMutex;
+    
+    std::vector<DxvkPhysicalBufferSlice> m_freeSlices;
+    std::vector<DxvkPhysicalBufferSlice> m_nextSlices;
+    
     VkDeviceSize m_physSliceLength  = 0;
     VkDeviceSize m_physSliceStride  = 0;
-    
-    std::array<Rc<DxvkPhysicalBuffer>, 2> m_physBuffers;
+    VkDeviceSize m_physSliceCount   = 2;
     
     Rc<DxvkPhysicalBuffer> allocPhysicalBuffer(
             VkDeviceSize    sliceCount) const;
     
-  };
-  
-  
-  /**
-   * \brief Buffer view
-   * 
-   * Allows the application to interpret buffer
-   * contents like formatted pixel data. These
-   * buffer views are used as texel buffers.
-   */
-  class DxvkBufferView : public DxvkResource {
-    
-  public:
-    
-    DxvkBufferView(
-      const Rc<vk::DeviceFn>&         vkd,
-      const Rc<DxvkBuffer>&           buffer,
-      const DxvkBufferViewCreateInfo& info);
-    
-    ~DxvkBufferView();
-    
-    /**
-     * \brief Buffer view handle
-     * \returns Buffer view handle
-     */
-    VkBufferView handle() const {
-      return m_view;
-    }
-    
-    /**
-     * \brief Buffer view properties
-     * \returns Buffer view properties
-     */
-    const DxvkBufferViewCreateInfo& info() const {
-      return m_info;
-    }
-    
-    /**
-     * \brief Underlying buffer object
-     * \returns Underlying buffer object
-     */
-    const DxvkBufferCreateInfo& bufferInfo() const {
-      return m_buffer->info();
-    }
-    
-    /**
-     * \brief Backing resource
-     * \returns Backing resource
-     */
-    Rc<DxvkResource> resource() const {
-      return m_buffer->resource();
-    }
-    
-    /**
-     * \brief Underlying buffer slice
-     * \returns Slice backing the view
-     */
-    DxvkPhysicalBufferSlice slice() const {
-      return m_buffer->subSlice(
-        m_info.rangeOffset,
-        m_info.rangeLength);
-    }
-    
-  private:
-    
-    Rc<vk::DeviceFn>  m_vkd;
-    Rc<DxvkBuffer>    m_buffer;
-    
-    DxvkBufferViewCreateInfo m_info;
-    VkBufferView             m_view;
-    
-    void createBufferView();
-    void destroyBufferView();
+    void lock();
+    void unlock();
     
   };
   
@@ -329,6 +271,152 @@ namespace dxvk {
     Rc<DxvkBuffer> m_buffer = nullptr;
     VkDeviceSize   m_offset = 0;
     VkDeviceSize   m_length = 0;
+    
+  };
+  
+  
+  /**
+   * \brief Buffer view
+   * 
+   * Allows the application to interpret buffer
+   * contents like formatted pixel data. These
+   * buffer views are used as texel buffers.
+   */
+  class DxvkBufferView : public RcObject {
+    
+  public:
+    
+    DxvkBufferView(
+      const Rc<vk::DeviceFn>&         vkd,
+      const Rc<DxvkBuffer>&           buffer,
+      const DxvkBufferViewCreateInfo& info);
+    
+    ~DxvkBufferView();
+    
+    /**
+     * \brief Buffer view handle
+     * \returns Buffer view handle
+     */
+    VkBufferView handle() const {
+      return m_physView->handle();
+    }
+    
+    /**
+     * \brief Element cound
+     * 
+     * Number of typed elements contained
+     * in the buffer view. Depends on the
+     * buffer view format.
+     * \returns Element count
+     */
+    VkDeviceSize elementCount() const {
+      auto format = imageFormatInfo(m_info.format);
+      return m_info.rangeLength / format->elementSize;
+    }
+    
+    /**
+     * \brief Buffer view properties
+     * \returns Buffer view properties
+     */
+    const DxvkBufferViewCreateInfo& info() const {
+      return m_info;
+    }
+    
+    /**
+     * \brief Underlying buffer object
+     * \returns Underlying buffer object
+     */
+    const DxvkBufferCreateInfo& bufferInfo() const {
+      return m_buffer->info();
+    }
+    
+    /**
+     * \brief Backing resource
+     * \returns Backing resource
+     */
+    Rc<DxvkResource> viewResource() const {
+      return m_physView;
+    }
+    
+    /**
+     * \brief Backing buffer resource
+     * \returns Backing buffer resource
+     */
+    Rc<DxvkResource> bufferResource() const {
+      return m_physView->slice().resource();
+    }
+    
+    /**
+     * \brief Underlying buffer slice
+     * \returns Slice backing the view
+     */
+    DxvkBufferSlice slice() const {
+      return DxvkBufferSlice(m_buffer,
+        m_info.rangeOffset,
+        m_info.rangeLength);
+    }
+    
+    /**
+     * \brief Underlying buffer slice
+     * \returns Slice backing the view
+     */
+    DxvkPhysicalBufferSlice physicalSlice() const {
+      return m_physView->slice();
+    }
+    
+    /**
+     * \brief Updates the buffer view
+     * 
+     * If the buffer has been invalidated ever since
+     * the view was created, the view is invalid as
+     * well and needs to be re-created. Call this
+     * prior to using the buffer view handle.
+     */
+    void updateView();
+    
+  private:
+    
+    Rc<vk::DeviceFn>           m_vkd;
+    DxvkBufferViewCreateInfo   m_info;
+    
+    Rc<DxvkBuffer>             m_buffer;
+    Rc<DxvkPhysicalBufferView> m_physView;
+    
+    uint32_t                   m_revision = 0;
+    
+    Rc<DxvkPhysicalBufferView> createView();
+    
+  };
+  
+  
+  /**
+   * \brief Buffer slice tracker
+   * 
+   * Stores a list of buffer slices that can be
+   * freed. Useful when buffers have been renamed
+   * and the original slice is no longer needed.
+   */
+  class DxvkBufferTracker {
+    
+  public:
+    
+    DxvkBufferTracker();
+    ~DxvkBufferTracker();
+    
+    void freeBufferSlice(
+      const Rc<DxvkBuffer>&           buffer,
+      const DxvkPhysicalBufferSlice&  slice);
+    
+    void reset();
+    
+  private:
+    
+    struct Entry {
+      Rc<DxvkBuffer>          buffer;
+      DxvkPhysicalBufferSlice slice;
+    };
+    
+    std::vector<Entry> m_entries;
     
   };
   

@@ -5,7 +5,6 @@ namespace dxvk {
   DxvkPipelineCache::DxvkPipelineCache(
     const Rc<vk::DeviceFn>& vkd)
   : m_vkd(vkd) {
-    // TODO read pipeline cache from file
     VkPipelineCacheCreateInfo info;
     info.sType            = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
     info.pNext            = nullptr;

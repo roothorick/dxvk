@@ -3,11 +3,6 @@
 
 #include "spirv_code_buffer.h"
 
-#include <spirv-tools/libspirv.hpp>
-#include <spirv-tools/optimizer.hpp>
-
-using namespace spvtools;
-
 namespace dxvk {
   
   SpirvCodeBuffer:: SpirvCodeBuffer() { }
@@ -21,7 +16,7 @@ namespace dxvk {
   }
   
   
-  SpirvCodeBuffer::SpirvCodeBuffer(std::istream&& stream) {
+  SpirvCodeBuffer::SpirvCodeBuffer(std::istream& stream) {
     stream.ignore(std::numeric_limits<std::streamsize>::max());
     std::streamsize length = stream.gcount();
     stream.clear();
@@ -127,39 +122,10 @@ namespace dxvk {
   }
   
   
-  void SpirvCodeBuffer::store(std::ostream&& stream) const {
+  void SpirvCodeBuffer::store(std::ostream& stream) const {
     stream.write(
       reinterpret_cast<const char*>(m_code.data()),
       sizeof(uint32_t) * m_code.size());
-  }
-  
-  
-  bool SpirvCodeBuffer::optimize() {
-    Optimizer optimizer(SPV_ENV_VULKAN_1_0);
-    optimizer.RegisterPass(CreateUnifyConstantPass());
-    optimizer.RegisterPass(CreateInlineExhaustivePass());
-    optimizer.RegisterPass(CreateEliminateDeadFunctionsPass());
-    optimizer.RegisterPass(CreatePrivateToLocalPass());
-    optimizer.RegisterPass(CreateScalarReplacementPass());
-    optimizer.RegisterPass(CreateLocalSingleBlockLoadStoreElimPass());
-    optimizer.RegisterPass(CreateLocalSingleStoreElimPass());
-    optimizer.RegisterPass(CreateLocalMultiStoreElimPass());
-    optimizer.RegisterPass(CreateInsertExtractElimPass());
-    optimizer.RegisterPass(CreateDeadInsertElimPass());
-    optimizer.RegisterPass(CreateStrengthReductionPass());
-    optimizer.RegisterPass(CreateAggressiveDCEPass());
-    optimizer.RegisterPass(CreateCompactIdsPass());
-    
-    return optimizer.Run(
-      m_code.data(),
-      m_code.size(),
-      &m_code);
-  }
-  
-  
-  bool SpirvCodeBuffer::validate() const {
-    static const SpirvTools tools(SPV_ENV_VULKAN_1_0);
-    return tools.Validate(m_code);
   }
   
 }

@@ -5,6 +5,7 @@
 
 #include "d3d11_device.h"
 #include "d3d11_enums.h"
+#include "d3d11_present.h"
 
 namespace dxvk {
   Logger Logger::s_instance("d3d11.log");
@@ -25,7 +26,7 @@ extern "C" {
           D3D_FEATURE_LEVEL   *pFeatureLevel,
           ID3D11DeviceContext **ppImmediateContext) {
     Com<IDXGIAdapter>        dxgiAdapter = pAdapter;
-    Com<IDXGIAdapterPrivate> dxvkAdapter = nullptr;
+    Com<IDXGIVkAdapter> dxvkAdapter = nullptr;
     
     if (dxgiAdapter == nullptr) {
       // We'll treat everything as hardware, even if the
@@ -58,7 +59,7 @@ extern "C" {
     
     // The adapter must obviously be a DXVK-compatible adapter so
     // that we can create a DXVK-compatible DXGI device from it.
-    if (FAILED(dxgiAdapter->QueryInterface(__uuidof(IDXGIAdapterPrivate),
+    if (FAILED(dxgiAdapter->QueryInterface(__uuidof(IDXGIVkAdapter),
         reinterpret_cast<void**>(&dxvkAdapter)))) {
       Logger::err("D3D11CreateDevice: Adapter is not a DXVK adapter");
       return E_INVALIDARG;
@@ -110,23 +111,27 @@ extern "C" {
       if (ppDevice == nullptr && ppImmediateContext == nullptr)
         return S_FALSE;
       
-      Com<IDXGIDevicePrivate> dxvkDevice = nullptr;
+      Com<D3D11DeviceContainer> container = new D3D11DeviceContainer();
       
       const VkPhysicalDeviceFeatures deviceFeatures
         = D3D11Device::GetDeviceFeatures(adapter, fl);
       
-      if (FAILED(DXGICreateDevicePrivate(dxvkAdapter.ptr(), &deviceFeatures, &dxvkDevice))) {
+      if (FAILED(dxvkAdapter->CreateDevice(container.ptr(), &deviceFeatures, &container->m_dxgiDevice))) {
         Logger::err("D3D11CreateDevice: Failed to create DXGI device");
         return E_FAIL;
       }
       
-      Com<D3D11Device> d3d11Device = new D3D11Device(dxvkDevice.ptr(), fl, Flags);
+      container->m_d3d11Device = new D3D11Device(
+        container.ptr(), container->m_dxgiDevice, fl, Flags);
+      
+      container->m_d3d11Presenter = new D3D11Presenter(
+        container.ptr(), container->m_d3d11Device);
       
       if (ppDevice != nullptr)
-        *ppDevice = d3d11Device.ref();
+        *ppDevice = ref(container->m_d3d11Device);
       
       if (ppImmediateContext != nullptr)
-        d3d11Device->GetImmediateContext(ppImmediateContext);
+        container->m_d3d11Device->GetImmediateContext(ppImmediateContext);
       return S_OK;
     } catch (const DxvkError& e) {
       Logger::err("D3D11CreateDevice: Failed to create D3D11 device");
@@ -148,51 +153,54 @@ extern "C" {
           ID3D11Device         **ppDevice,
           D3D_FEATURE_LEVEL    *pFeatureLevel,
           ID3D11DeviceContext  **ppImmediateContext) {
+    Com<ID3D11Device>        d3d11Device;
+    Com<ID3D11DeviceContext> d3d11Context;
+    
     // Try to create a device first.
     HRESULT status = D3D11CreateDevice(pAdapter, DriverType,
       Software, Flags, pFeatureLevels, FeatureLevels,
-      SDKVersion, ppDevice, pFeatureLevel, ppImmediateContext);
+      SDKVersion, &d3d11Device, pFeatureLevel, &d3d11Context);
     
     if (FAILED(status))
       return status;
     
     // Again, the documentation does not exactly tell us what we
     // need to do in case one of the arguments is a null pointer.
-    if (ppDevice != nullptr && ppSwapChain != nullptr) {
-      if (pSwapChainDesc == nullptr)
-        return E_INVALIDARG;
-      
-      Com<ID3D11Device> d3d11Device = *ppDevice;
-      Com<IDXGIDevice>  dxgiDevice  = nullptr;
-      Com<IDXGIAdapter> dxgiAdapter = nullptr;
-      Com<IDXGIFactory> dxgiFactory = nullptr;
-      
-      if (FAILED(d3d11Device->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&dxgiDevice)))) {
-        Logger::err("D3D11CreateDeviceAndSwapChain: Failed to query DXGI device");
-        return E_FAIL;
-      }
-      
-      if (FAILED(dxgiDevice->GetParent(__uuidof(IDXGIAdapter), reinterpret_cast<void**>(&dxgiAdapter)))) {
-        Logger::err("D3D11CreateDeviceAndSwapChain: Failed to query DXGI adapter");
-        return E_FAIL;
-      }
-      
-      if (FAILED(dxgiAdapter->GetParent(__uuidof(IDXGIFactory), reinterpret_cast<void**>(&dxgiFactory)))) {
-        Logger::err("D3D11CreateDeviceAndSwapChain: Failed to query DXGI factory");
-        return E_FAIL;
-      }
-      
-      DXGI_SWAP_CHAIN_DESC desc = *pSwapChainDesc;
-      if (FAILED(dxgiFactory->CreateSwapChain(d3d11Device.ptr(), &desc, ppSwapChain))) {
-        Logger::err("D3D11CreateDeviceAndSwapChain: Failed to create swap chain");
-        return E_FAIL;
-      }
-      
-      return S_OK;
-    } else {
-      Logger::warn("D3D11CreateDeviceAndSwapChain: Not creating a swap chain");
-      return S_OK;
+    if (pSwapChainDesc == nullptr)
+      return E_INVALIDARG;
+    
+    Com<IDXGIDevice>  dxgiDevice  = nullptr;
+    Com<IDXGIAdapter> dxgiAdapter = nullptr;
+    Com<IDXGIFactory> dxgiFactory = nullptr;
+    
+    if (FAILED(d3d11Device->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&dxgiDevice)))) {
+      Logger::err("D3D11CreateDeviceAndSwapChain: Failed to query DXGI device");
+      return E_FAIL;
     }
+    
+    if (FAILED(dxgiDevice->GetParent(__uuidof(IDXGIAdapter), reinterpret_cast<void**>(&dxgiAdapter)))) {
+      Logger::err("D3D11CreateDeviceAndSwapChain: Failed to query DXGI adapter");
+      return E_FAIL;
+    }
+    
+    if (FAILED(dxgiAdapter->GetParent(__uuidof(IDXGIFactory), reinterpret_cast<void**>(&dxgiFactory)))) {
+      Logger::err("D3D11CreateDeviceAndSwapChain: Failed to query DXGI factory");
+      return E_FAIL;
+    }
+    
+    DXGI_SWAP_CHAIN_DESC desc = *pSwapChainDesc;
+    if (FAILED(dxgiFactory->CreateSwapChain(d3d11Device.ptr(), &desc, ppSwapChain))) {
+      Logger::err("D3D11CreateDeviceAndSwapChain: Failed to create swap chain");
+      return E_FAIL;
+    }
+    
+    if (ppDevice != nullptr)
+      *ppDevice = d3d11Device.ref();
+    
+    if (ppImmediateContext != nullptr)
+      *ppImmediateContext = d3d11Context.ref();
+    
+    return S_OK;
   }
   
 }
