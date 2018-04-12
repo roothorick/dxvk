@@ -8,7 +8,7 @@ using namespace dxvk;
 #include <dxvk_interop.h>
 
 extern "C" DLLEXPORT void __stdcall dxvkGetVulkanImage(D3D11Texture2D* tex,
-    VkImage* img,
+    VkImage* vkImg,
     uint32_t* width,
     uint32_t* height,
     uint32_t* format,
@@ -16,13 +16,13 @@ extern "C" DLLEXPORT void __stdcall dxvkGetVulkanImage(D3D11Texture2D* tex,
   )
 {
   D3D11_TEXTURE2D_DESC* desc = tex->GetDescInternal();
-  D3D11TextureInfo* texInfo = tex->GetTextureInfo();
+  Rc<DxvkImage> dvImg = tex->GetCommonTexture()->GetImage();
   
-  *img = texInfo->image->handle();
+  *vkImg = dvImg->handle();
   *width = desc->Width;
   *height = desc->Height;
-  *format = texInfo->image->info().format;
-  *sampleCt = texInfo->image->info().sampleCount;
+  *format = dvImg->info().format;
+  *sampleCt = dvImg->info().sampleCount;
 }
 
 extern "C" DLLEXPORT VkInstance __stdcall dxvkInstanceOfFactory(IDXGIFactory* fac)
